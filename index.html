@@ -7,6 +7,7 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root {
   --primary: #006666;
@@ -125,14 +126,51 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 .loading-overlay { position:fixed; inset:0; background:rgba(240,246,246,.8); display:flex; align-items:center; justify-content:center; z-index:9999; }
 .loading-overlay .spinner-border { color:var(--primary) !important; }
 .toast-container { position:fixed; top:20px; right:20px; z-index:9999; }
+/* ── 사이드바 오버레이 ── */
+.sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:999; }
+.sidebar-overlay.show { display:block; }
+
 @media (max-width:768px) {
-  .sidebar { transform:translateX(-100%); }
+  .sidebar { transform:translateX(-100%); z-index:1000; }
   .sidebar.open { transform:translateX(0); }
   .main-content { margin-left:0; }
   .login-wrap { flex-direction:column; }
-  .login-left { padding:32px 20px 20px; }
+  .login-left { padding:32px 20px 20px; min-height:auto; }
   .login-right { width:100%; padding:0 16px 32px; }
-  .login-card { padding:32px 24px; }
+  .login-card { padding:28px 20px; }
+  /* 탑바 */
+  .top-bar { padding:10px 14px; }
+  .top-bar h4 { font-size:15px; }
+  .company-tag { display:none !important; }
+  /* 카드·테이블 반응형 */
+  .card { border-radius:10px; }
+  .card-header { padding:10px 14px; font-size:13px; }
+  .card-body { padding:14px; }
+  .table-responsive, .table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .table { font-size:12px; white-space:nowrap; }
+  /* 대시보드 통계 */
+  .stat-card { padding:12px; }
+  .stat-card .stat-value { font-size:20px; }
+  .stat-card .stat-label { font-size:11px; }
+  /* 결재 플로우 */
+  .approval-flow { gap:4px; }
+  .approval-step { padding:4px 8px; font-size:11px; }
+  .approval-stamp-table th,.approval-stamp-table td { padding:2px 4px; font-size:10px; min-width:50px; }
+  .approval-stamp-table .sig-cell { height:36px; width:50px; }
+  .approval-stamp-table .sig-cell img { max-width:42px; max-height:30px; }
+  /* 드롭존 */
+  .drop-zone { padding:20px; }
+  .drop-zone i { font-size:24px; }
+  .drop-zone p { font-size:12px; }
+  /* 알림 */
+  .notif-dropdown { width:calc(100vw - 20px); max-width:360px; }
+  /* 모달 */
+  .modal-dialog { margin:10px; }
+  /* 폼 요소 */
+  .form-control, .form-select { font-size:14px; }
+  .btn { font-size:13px; }
+  /* 문서 미리보기 */
+  .doc-preview-frame { min-height:400px; }
 }
 @media print {
   .no-print { display:none !important; }
@@ -143,6 +181,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 <div id="loadingOverlay" class="loading-overlay" style="display:none">
   <div class="text-center">
     <div class="spinner-border text-primary" style="width:48px;height:48px" role="status"></div>
@@ -313,24 +352,40 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           <div class="card-header"><i class="bi bi-file-earmark-plus me-2"></i>새 문서 작성</div>
           <div class="card-body">
             <div class="row g-3 mb-4">
-              <div class="col-md-4">
-                <label class="form-label fw-semibold">문서 제목 <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" id="newDocTitle" placeholder="예: 일래보 아사이베리 샴푸 시험성적서">
+              <div class="col-md-5">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <label class="form-label fw-semibold mb-0">제품명 <span class="text-danger">*</span></label>
+                  <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="manualTitleMode" onchange="toggleManualTitleMode(this.checked)">
+                    <label class="form-check-label" style="font-size:11px;color:#5a7a7a" for="manualTitleMode">문서제목 직접입력</label>
+                  </div>
+                </div>
+                <div id="bomSearchSection">
+                  <div class="position-relative">
+                    <input type="text" class="form-control" id="bomSearchInput" placeholder="제품명 또는 제품코드 검색..." oninput="onBomSearch(this.value)" autocomplete="off">
+                    <div id="bomDropdown" class="list-group position-absolute w-100" style="display:none;z-index:1050;max-height:200px;overflow-y:auto;top:100%;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+                  </div>
+                  <div id="selectedProductInfo" class="mt-1" style="display:none">
+                    <small class="text-success"><i class="bi bi-check-circle me-1"></i><span id="selectedProductText"></span></small>
+                  </div>
+                </div>
+                <div id="manualTitleSection" style="display:none">
+                  <input type="text" class="form-control" id="newDocTitle" placeholder="문서 제목 직접 입력">
+                </div>
+                <input type="hidden" id="selectedProductCode">
               </div>
-              <div class="col-md-3">
-                <label class="form-label fw-semibold">분류</label>
-                <select class="form-select" id="newDocCategory">
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">문서 종류 <span class="text-danger">*</span></label>
+                <select class="form-select" id="newDocCategory" onchange="updateAutoDocTitle()">
                   <option value="성적서">완제품 시험 성적서</option>
-                  <option value="검사기록">검사 기록서</option>
-                  <option value="시험의뢰">시험 의뢰서</option>
-                  <option value="기타">기타</option>
                 </select>
               </div>
-              <div class="col-md-5">
-                <label class="form-label fw-semibold">PDF 저장 경로</label>
-                <input type="text" class="form-control" id="newDocSavePath" placeholder="빈칸시 자동생성 (승인문서/연도/월)">
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">자동 문서제목</label>
+                <div class="form-control bg-light" id="autoDocTitlePreview" style="font-size:12px;color:#5a7a7a;min-height:38px;overflow:hidden;text-overflow:ellipsis">제품명 선택 시 자동 생성</div>
               </div>
             </div>
+            <input type="hidden" id="newDocSavePath">
 
             <div class="mb-4">
               <label class="form-label fw-semibold">문서 파일 (Excel 또는 PDF) <span class="text-danger">*</span></label>
@@ -370,7 +425,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
       <!-- 결재 대기 -->
       <div id="page-pending-approval" class="page-section" style="display:none">
         <div class="table-wrap">
-          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>분류</th><th>작성자</th><th>요청일</th><th>상태</th><th></th></tr></thead>
+          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성자</th><th>요청일</th><th>상태</th><th></th></tr></thead>
           <tbody id="pendingApprovalTbody"><tr><td colspan="7" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr></tbody></table>
         </div>
       </div>
@@ -384,7 +439,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           <button class="btn btn-sm btn-outline-danger" onclick="filterMyDocs('rejected',this)">반려</button>
         </div>
         <div class="table-wrap">
-          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>분류</th><th>작성일</th><th>상태</th><th></th></tr></thead>
+          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성일</th><th>상태</th><th></th></tr></thead>
           <tbody id="myDocsTbody"><tr><td colspan="6" class="text-center text-muted py-4">문서가 없습니다.</td></tr></tbody></table>
         </div>
       </div>
@@ -392,7 +447,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
       <!-- 전체 문서 -->
       <div id="page-all-docs" class="page-section" style="display:none">
         <div class="table-wrap">
-          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>분류</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
+          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
           <tbody id="allDocsTbody"><tr><td colspan="7" class="text-center text-muted py-4">문서가 없습니다.</td></tr></tbody></table>
         </div>
       </div>
@@ -409,7 +464,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           </div>
         </div></div>
         <div class="table-wrap">
-          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>분류</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
+          <table class="table"><thead><tr><th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
           <tbody id="searchResultTbody"><tr><td colspan="7" class="text-center text-muted py-4">검색어를 입력하세요.</td></tr></tbody></table>
         </div>
       </div>
@@ -434,7 +489,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
               <div class="col-md-3"><strong class="text-muted" style="font-size:11px">제목</strong><div id="detailTitle">-</div></div>
               <div class="col-md-2"><strong class="text-muted" style="font-size:11px">작성자</strong><div id="detailCreator">-</div></div>
               <div class="col-md-2"><strong class="text-muted" style="font-size:11px">작성일</strong><div id="detailDate">-</div></div>
-              <div class="col-md-1"><strong class="text-muted" style="font-size:11px">분류</strong><div id="detailCategory">-</div></div>
+              <div class="col-md-1"><strong class="text-muted" style="font-size:11px">문서 종류</strong><div id="detailCategory">-</div></div>
               <div class="col-md-2"><strong class="text-muted" style="font-size:11px">상태</strong><div id="detailStatus">-</div></div>
             </div>
           </div>
@@ -505,33 +560,63 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 
       <!-- 설정 -->
       <div id="page-admin-settings" class="page-section" style="display:none">
+        <!-- 시스템 설정 -->
         <div class="card mb-4">
-          <div class="card-header">시스템 설정</div>
+          <div class="card-header"><i class="bi bi-gear me-2"></i>시스템 설정</div>
           <div class="card-body">
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label fw-semibold">웹훅 URL</label>
-                <input type="text" class="form-control" id="settingWebhook" placeholder="Google Chat / Slack Webhook URL">
+                <input type="text" class="form-control" id="settingWebhook" placeholder="Google Chat / Slack / Jandi Webhook URL">
                 <small class="text-muted">결재 알림이 여기로 전송됩니다.</small>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label fw-semibold">PDF 저장 경로 템플릿</label>
-                <input type="text" class="form-control" id="settingSavePath" placeholder="승인문서/{year}/{month}">
-                <small class="text-muted">변수: {year}, {month}</small>
               </div>
               <div class="col-md-6">
                 <label class="form-label fw-semibold">회사명</label>
                 <input type="text" class="form-control" id="settingCompany">
               </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">PDF 저장 경로 (기본)</label>
+                <input type="text" class="form-control" id="settingSavePath" placeholder="승인문서/{year}/{month}">
+                <small class="text-muted">변수: {year}, {month} · 문서 종류별 경로는 아래에서 설정</small>
+              </div>
             </div>
             <button class="btn btn-primary mt-3" onclick="saveSettings()"><i class="bi bi-check me-1"></i>설정 저장</button>
           </div>
         </div>
-        <!-- 문서 분류 항목 관리 -->
+
+        <!-- BOM 제품 데이터 업로드 -->
         <div class="card mb-4">
-          <div class="card-header"><i class="bi bi-tags me-2"></i>문서 분류 항목 설정</div>
+          <div class="card-header"><i class="bi bi-database me-2"></i>BOM 제품 데이터</div>
           <div class="card-body">
-            <p class="text-muted mb-3" style="font-size:12px">새 문서 작성·검색·목록에서 표시되는 분류 항목입니다. 항목 순서대로 드롭다운에 나타납니다.</p>
+            <p class="text-muted mb-3" style="font-size:12px">BOM.xlsx 파일을 업로드하면 새 문서 작성 시 제품명을 검색할 수 있습니다.</p>
+            <div class="drop-zone" id="bomUploadZone" style="padding:20px">
+              <i class="bi bi-file-earmark-spreadsheet" style="font-size:28px;color:var(--primary)"></i>
+              <p class="mt-2 mb-0">BOM.xlsx 파일을 드래그하거나 클릭하세요</p>
+              <input type="file" id="bomFileInput" accept=".xlsx,.xls" style="display:none">
+            </div>
+            <div id="bomUploadStatus" class="mt-2"></div>
+            <div id="bomProductCount" class="mt-2" style="display:none">
+              <small class="text-muted"><i class="bi bi-info-circle me-1"></i>등록된 제품: <strong id="bomCountNum">0</strong>개</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- 문서 종류별 PDF 저장 경로 -->
+        <div class="card mb-4">
+          <div class="card-header"><i class="bi bi-folder2 me-2"></i>문서 종류별 PDF 저장 경로</div>
+          <div class="card-body">
+            <p class="text-muted mb-3" style="font-size:12px">승인된 문서가 저장될 구글 드라이브 폴더 경로를 문서 종류별로 설정합니다.<br>기본 형식: <code>승인문서/{year}/{month}/문서종류</code> · 변수: {year}, {month}, {doc_type}<br>
+            <i class="bi bi-info-circle"></i> 로컬 PC 저장은 <a href="https://www.google.com/intl/ko/drive/download/" target="_blank">구글 드라이브 데스크톱</a> 앱으로 자동 동기화 가능합니다.</p>
+            <div id="docTypePathList" class="mb-3"></div>
+            <button class="btn btn-sm btn-primary" onclick="saveDocTypePaths()"><i class="bi bi-check me-1"></i>경로 저장</button>
+          </div>
+        </div>
+
+        <!-- 문서 종류 항목 설정 -->
+        <div class="card mb-4">
+          <div class="card-header"><i class="bi bi-tags me-2"></i>문서 종류 항목 설정</div>
+          <div class="card-body">
+            <p class="text-muted mb-3" style="font-size:12px">새 문서 작성·검색·목록에서 표시되는 문서 종류 항목입니다. 순서대로 드롭다운에 나타납니다.</p>
             <div id="categoryList" class="mb-3"></div>
             <div class="row g-2 align-items-end">
               <div class="col-md-3">
@@ -546,18 +631,42 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
                 <button class="btn btn-sm btn-outline-primary" onclick="addCategoryItem()"><i class="bi bi-plus-circle me-1"></i>추가</button>
               </div>
             </div>
-            <button class="btn btn-primary btn-sm mt-3" onclick="saveCategorySettings()"><i class="bi bi-check me-1"></i>분류 항목 저장</button>
+            <button class="btn btn-primary btn-sm mt-3" onclick="saveCategorySettings()"><i class="bi bi-check me-1"></i>종류 항목 저장</button>
           </div>
         </div>
-                <!-- 기본 결재선 설정 -->
-        <div class="card">
-          <div class="card-header">기본 결재선 설정</div>
+
+        <!-- 기본 결재선 설정 -->
+        <div class="card mb-4">
+          <div class="card-header"><i class="bi bi-diagram-3 me-2"></i>기본 결재선 설정</div>
           <div class="card-body">
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="authorSignFirst">
+              <label class="form-check-label" for="authorSignFirst" style="font-size:13px">
+                <strong>결재 제출 시 작성자 서명 자동 포함</strong>
+                <small class="d-block text-muted">활성화 시 작성자가 1단계 서명 후 결재자에게 전달됩니다.</small>
+              </label>
+            </div>
             <p class="text-muted" style="font-size:12px">새 문서 작성 시 자동으로 적용될 기본 결재선입니다.</p>
             <div id="defaultApprovalSteps" class="mb-3"></div>
             <div class="d-flex gap-2">
               <button class="btn btn-sm btn-outline-primary" onclick="addDefaultApprovalStep()"><i class="bi bi-plus-circle me-1"></i>단계 추가</button>
               <button class="btn btn-sm btn-primary" onclick="saveDefaultApprovalChain()"><i class="bi bi-check me-1"></i>기본 결재선 저장</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 로그인 이력 -->
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-clock-history me-2"></i>로그인 이력</span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadLoginHistory()"><i class="bi bi-arrow-clockwise"></i></button>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-sm mb-0">
+                <thead><tr><th>사용자</th><th>이름</th><th>시각</th><th>IP</th></tr></thead>
+                <tbody id="loginHistoryTbody"><tr><td colspan="4" class="text-center text-muted py-3">불러오기 버튼을 클릭하세요</td></tr></tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -613,7 +722,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
     <div class="modal-header"><h5 class="modal-title">템플릿 추가</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <div class="mb-3"><label class="form-label">템플릿 이름 <span class="text-danger">*</span></label><input type="text" class="form-control" id="tplName"></div>
-      <div class="mb-3"><label class="form-label">분류</label><select class="form-select" id="tplCategory"><option value="성적서">성적서</option><option value="검사기록">검사기록</option><option value="시험의뢰">시험의뢰</option><option value="기타">기타</option></select></div>
+      <div class="mb-3"><label class="form-label">문서 종류</label><select class="form-select" id="tplCategory"></select></div>
       <div class="mb-3"><label class="form-label">설명</label><textarea class="form-control" id="tplDesc" rows="2"></textarea></div>
       <div class="mb-3">
         <label class="form-label">파일 (Excel/PDF) <span class="text-danger">*</span></label>
@@ -648,6 +757,23 @@ let DOC_CATEGORIES = [
   {value:'시험의뢰', label:'시험 의뢰서'},
   {value:'기타', label:'기타'}
 ];
+let BOM_DATA = [];
+let AUTHOR_SIGN_FIRST = false;
+let DOC_TYPE_PATHS = {};
+let bomSearchTimer = null;
+
+// ============================================================
+// localStorage 캐시 유틸리티 (즉시 렌더링 → 백그라운드 갱신)
+// ============================================================
+function lsGet(key) {
+  try { const v = localStorage.getItem('qa_cache_' + key); return v ? JSON.parse(v).d : null; } catch(e) { return null; }
+}
+function lsPut(key, data) {
+  try { localStorage.setItem('qa_cache_' + key, JSON.stringify({ d: data, t: Date.now() })); } catch(e) {}
+}
+function lsDel(key) {
+  try { localStorage.removeItem('qa_cache_' + key); } catch(e) {}
+}
 
 // ============================================================
 // API
@@ -718,7 +844,10 @@ async function handleLogin(e) {
   if (!API_URL) { showToast('먼저 API URL을 설정해주세요.', 'danger'); return false; }
   showLoading('로그인 중...');
   try {
-    const result = await api('login', { username, password });
+    // IP 주소 취득 시도 (실패해도 로그인 진행)
+    let clientIp = '';
+    try { const ipRes = await fetch('https://api.ipify.org?format=json', {signal: AbortSignal.timeout(2000)}); const ipData = await ipRes.json(); clientIp = ipData.ip; } catch(e) {}
+    const result = await api('login', { username, password, ip: clientIp });
     hideLoading();
     if (result.success) {
       SESSION_TOKEN = result.token;
@@ -767,6 +896,7 @@ function showApp() {
   loadAllUsers();
   loadNotificationCount();
   loadCategoriesFromServer();
+  loadBomData();
 }
 
 function handleLogout() {
@@ -802,11 +932,20 @@ function navigateTo(page) {
 }
 
 document.querySelectorAll('.sidebar-nav .nav-link').forEach(el => {
-  el.addEventListener('click', function(e) { e.preventDefault(); const p = this.getAttribute('data-page'); if (p) navigateTo(p); });
+  el.addEventListener('click', function(e) { e.preventDefault(); const p = this.getAttribute('data-page'); if (p) { navigateTo(p); closeSidebar(); } });
 });
 
 function goBack() { navigateTo(previousPage || 'dashboard'); }
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebarOverlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('show', sb.classList.contains('open'));
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+}
 
 function refreshCurrentPage() {
   if (currentPage === 'doc-detail' && currentDocId) { refreshDocDetail(); return; }
@@ -819,20 +958,29 @@ function refreshDocDetail() { if (currentDocId) viewDocument(currentDocId); }
 // ============================================================
 // 대시보드
 // ============================================================
+function _renderDashboard(result) {
+  if (!result || !result.success) return;
+  const s = result.stats;
+  document.getElementById('statPendingApproval').textContent = s.pending_my_approval;
+  document.getElementById('statMyPending').textContent = s.my_pending;
+  document.getElementById('statMyApproved').textContent = s.my_approved;
+  document.getElementById('statMyRejected').textContent = s.my_rejected;
+  const badge = document.getElementById('pendingBadge');
+  if (s.pending_my_approval > 0) { badge.textContent = s.pending_my_approval; badge.style.display = 'inline'; }
+  else badge.style.display = 'none';
+  renderDashPending(result.pending_docs || []);
+  renderDashRecent(result.recent_docs || []);
+}
+
 async function loadDashboard() {
+  // 캐시된 데이터 즉시 표시 (체감 속도 개선)
+  const cached = lsGet('dashboard');
+  if (cached) _renderDashboard(cached);
   try {
     const result = await api('dashboard', {});
     if (!result.success) return;
-    const s = result.stats;
-    document.getElementById('statPendingApproval').textContent = s.pending_my_approval;
-    document.getElementById('statMyPending').textContent = s.my_pending;
-    document.getElementById('statMyApproved').textContent = s.my_approved;
-    document.getElementById('statMyRejected').textContent = s.my_rejected;
-    const badge = document.getElementById('pendingBadge');
-    if (s.pending_my_approval > 0) { badge.textContent = s.pending_my_approval; badge.style.display = 'inline'; }
-    else badge.style.display = 'none';
-    renderDashPending(result.pending_docs || []);
-    renderDashRecent(result.recent_docs || []);
+    lsPut('dashboard', result);
+    _renderDashboard(result);
   } catch(ex) { console.error(ex); }
 }
 
@@ -859,16 +1007,20 @@ function renderDashRecent(docs) {
 // 문서 목록
 // ============================================================
 async function loadPendingApproval() {
+  const cached = lsGet('pending_approval');
+  if (cached) renderDocTable('pendingApprovalTbody', cached, true);
   try {
     const result = await api('doc_list', { filter: 'pending_my_approval' });
-    if (result.success) renderDocTable('pendingApprovalTbody', result.documents, true);
+    if (result.success) { lsPut('pending_approval', result.documents); renderDocTable('pendingApprovalTbody', result.documents, true); }
   } catch(ex) {}
 }
 
 async function loadMyDocs() {
+  const cached = lsGet('my_docs');
+  if (cached) { myDocsCache = cached; renderDocTable('myDocsTbody', cached, false); }
   try {
     const result = await api('doc_list', { filter: 'my_created' });
-    if (result.success) { myDocsCache = result.documents; renderDocTable('myDocsTbody', result.documents, false); }
+    if (result.success) { myDocsCache = result.documents; lsPut('my_docs', result.documents); renderDocTable('myDocsTbody', result.documents, false); }
   } catch(ex) {}
 }
 
@@ -881,9 +1033,11 @@ function filterMyDocs(status, btn) {
 }
 
 async function loadAllDocs() {
+  const cached = lsGet('all_docs');
+  if (cached) renderDocTable('allDocsTbody', cached, true);
   try {
     const result = await api('doc_list', {});
-    if (result.success) renderDocTable('allDocsTbody', result.documents, true);
+    if (result.success) { lsPut('all_docs', result.documents); renderDocTable('allDocsTbody', result.documents, true); }
   } catch(ex) {}
 }
 
@@ -919,12 +1073,26 @@ async function doSearch() {
 // 문서 작성
 // ============================================================
 function initDocCreate() {
-  document.getElementById('newDocTitle').value = '';
+  // 제품명/BOM 검색 초기화
+  const bomInput = document.getElementById('bomSearchInput');
+  if (bomInput) bomInput.value = '';
+  const prodCode = document.getElementById('selectedProductCode');
+  if (prodCode) prodCode.value = '';
+  const prodInfo = document.getElementById('selectedProductInfo');
+  if (prodInfo) prodInfo.style.display = 'none';
+  const bomDD = document.getElementById('bomDropdown');
+  if (bomDD) bomDD.style.display = 'none';
+  const manualCheck = document.getElementById('manualTitleMode');
+  if (manualCheck) { manualCheck.checked = false; toggleManualTitleMode(false); }
+  const titleEl = document.getElementById('newDocTitle');
+  if (titleEl) titleEl.value = '';
+  const autoPreview = document.getElementById('autoDocTitlePreview');
+  if (autoPreview) autoPreview.textContent = '제품명 선택 시 자동 생성';
   document.getElementById('newDocSavePath').value = '';
   document.getElementById('docFileInfo').style.display = 'none';
   currentDocFile = null;
   document.getElementById('approvalStepsCreate').innerHTML = '';
-  // 분류 select 동적 갱신
+  // 문서 종류 select 동적 갱신
   populateCategorySelect('newDocCategory');
   // 기본 결재선 자동 불러오기
   loadDefaultApprovalChain();
@@ -946,8 +1114,16 @@ function handleDocFile(file) {
   currentDocFile = file;
   document.getElementById('docFileName').textContent = file.name + ' (' + (file.size/1024).toFixed(0) + 'KB)';
   document.getElementById('docFileInfo').style.display = 'block';
-  const titleInput = document.getElementById('newDocTitle');
-  if (!titleInput.value) titleInput.value = file.name.replace(/\.(xlsx?|pdf)$/i, '');
+  const cleanName = file.name.replace(/\.(xlsx?|pdf)$/i, '');
+  const manualMode = document.getElementById('manualTitleMode');
+  if (manualMode && manualMode.checked) {
+    const titleInput = document.getElementById('newDocTitle');
+    if (titleInput && !titleInput.value) titleInput.value = cleanName;
+  } else {
+    const bomInput = document.getElementById('bomSearchInput');
+    if (bomInput && !bomInput.value) bomInput.value = cleanName;
+    updateAutoDocTitle();
+  }
 }
 
 function clearDocFile() {
@@ -998,10 +1174,21 @@ async function loadDefaultApprovalChain() {
 }
 
 async function submitNewDocument() {
-  const title = document.getElementById('newDocTitle').value.trim();
+  let title;
+  const manualMode = document.getElementById('manualTitleMode');
+  if (manualMode && manualMode.checked) {
+    title = document.getElementById('newDocTitle').value.trim();
+    if (!title) { showToast('문서 제목을 입력해주세요.', 'warning'); return; }
+  } else {
+    const bomVal = document.getElementById('bomSearchInput').value.trim();
+    if (!bomVal) { showToast('제품명을 입력하거나 BOM에서 선택해주세요.', 'warning'); return; }
+    const docTypeSel = document.getElementById('newDocCategory');
+    const docTypeLabel = docTypeSel.options[docTypeSel.selectedIndex] ? docTypeSel.options[docTypeSel.selectedIndex].text : '';
+    title = bomVal + (docTypeLabel ? ' - ' + docTypeLabel : '');
+  }
   const category = document.getElementById('newDocCategory').value;
-  const savePath = document.getElementById('newDocSavePath').value.trim();
-  if (!title) { showToast('문서 제목을 입력해주세요.', 'warning'); return; }
+  const productCode = (document.getElementById('selectedProductCode') || {}).value || '';
+  const savePath = (document.getElementById('newDocSavePath') || {}).value || '';
   if (!currentDocFile) { showToast('파일을 업로드해주세요.', 'warning'); return; }
 
   const steps = [];
@@ -1017,12 +1204,15 @@ async function submitNewDocument() {
   showLoading('문서 업로드 중...');
   try {
     const fileData = await readFileAsBase64(currentDocFile);
-    const result = await api('doc_create', { title, category, save_path: savePath, file_data: fileData, file_name: currentDocFile.name, approval_steps: JSON.stringify(steps) });
+    const result = await api('doc_create', { title, category, product_code: productCode, save_path: savePath, file_data: fileData, file_name: currentDocFile.name, approval_steps: JSON.stringify(steps), include_author_signature: AUTHOR_SIGN_FIRST });
     if (!result.success) { hideLoading(); showToast(result.error, 'danger'); return; }
     const submitResult = await api('approval_submit', { doc_id: result.id });
     hideLoading();
-    if (submitResult.success) { showToast('문서가 생성되고 결재 요청되었습니다.'); navigateTo('my-docs'); }
-    else showToast('문서 생성됨, 결재 요청 실패: ' + submitResult.error, 'warning');
+    if (submitResult.success) {
+      // 관련 캐시 무효화
+      lsDel('my_docs'); lsDel('all_docs'); lsDel('pending_approval'); lsDel('dashboard');
+      showToast('문서가 생성되고 결재 요청되었습니다.'); navigateTo('my-docs');
+    } else showToast('문서 생성됨, 결재 요청 실패: ' + submitResult.error, 'warning');
   } catch(ex) { hideLoading(); showToast('오류: ' + ex.message, 'danger'); }
 }
 
@@ -1055,7 +1245,7 @@ async function viewDocument(docId) {
     document.getElementById('detailCreator').textContent = doc.creator_name;
     document.getElementById('detailDate').textContent = formatDate(doc.created_at);
     document.getElementById('detailCategory').innerHTML = categoryBadge(doc.category);
-    document.getElementById('detailStatus').innerHTML = statusBadge(doc.status);
+    document.getElementById('detailStatus').innerHTML = statusBadge(doc.status) + (doc.status === 'approved' ? ' <span class="badge bg-secondary" style="font-size:10px"><i class="bi bi-lock me-1"></i>수정불가</span>' : '');
 
     const canDelete = (String(doc.creator_id) === String(CURRENT_USER.id) || CURRENT_USER.role === 'admin') && doc.status !== 'approved';
     document.getElementById('btnDeleteDoc').style.display = canDelete ? 'inline-block' : 'none';
@@ -1148,9 +1338,9 @@ async function doApprove() {
     const result = await api('approval_approve', { doc_id: currentDocId, comment });
     hideLoading();
     if (!result.success) { showToast(result.error, 'danger'); return; }
+    lsDel('pending_approval'); lsDel('all_docs'); lsDel('dashboard'); // 캐시 무효화
     if (result.is_final) showToast('최종 승인 완료! PDF가 구글드라이브에 자동 저장되었습니다.');
     else showToast('승인 처리되었습니다.');
-    // 즉시 새로고침
     viewDocument(currentDocId);
   } catch(ex) { hideLoading(); showToast('오류: ' + ex.message, 'danger'); }
 }
@@ -1168,7 +1358,7 @@ async function doReject() {
   try {
     const result = await api('approval_reject', { doc_id: currentDocId, comment });
     hideLoading();
-    if (result.success) { showToast('문서가 반려되었습니다.'); viewDocument(currentDocId); }
+    if (result.success) { lsDel('pending_approval'); lsDel('all_docs'); lsDel('dashboard'); showToast('문서가 반려되었습니다.'); viewDocument(currentDocId); }
     else showToast(result.error, 'danger');
   } catch(ex) { hideLoading(); showToast('오류: ' + ex.message, 'danger'); }
 }
@@ -1207,9 +1397,11 @@ async function confirmDeleteDoc() {
 // 사용자 관리
 // ============================================================
 async function loadAllUsers() {
+  const cached = lsGet('all_users');
+  if (cached) ALL_USERS = cached;
   try {
     const result = await api('user_list', {});
-    if (result.success) ALL_USERS = result.users;
+    if (result.success) { ALL_USERS = result.users; lsPut('all_users', result.users); }
   } catch(ex) {}
 }
 
@@ -1365,13 +1557,23 @@ async function loadSettings() {
     document.getElementById('settingWebhook').value = s.webhook_url || '';
     document.getElementById('settingSavePath').value = s.save_path_template || '승인문서/{year}/{month}';
     document.getElementById('settingCompany').value = s.company_name || '';
-    // 분류 항목 로드
+    // 문서 종류 항목 로드
     if (s.doc_categories) {
       try { DOC_CATEGORIES = JSON.parse(s.doc_categories); } catch(e) {}
     }
     renderCategoryList();
+    // 문서 종류별 경로 로드
+    try { DOC_TYPE_PATHS = JSON.parse(s.doc_type_paths || '{}'); } catch(e) { DOC_TYPE_PATHS = {}; }
+    renderDocTypePathList();
+    // 작성자 서명 옵션 로드
+    AUTHOR_SIGN_FIRST = s.author_sign_first === 'true';
+    const asf = document.getElementById('authorSignFirst');
+    if (asf) asf.checked = AUTHOR_SIGN_FIRST;
     // 기본 결재선 로드
     loadDefaultApprovalStepsUI(s.default_approval_chain);
+    // BOM 제품 수 표시
+    loadBomProductCount();
+    // 로그인 이력은 버튼 클릭 시 로드
   } catch(ex) {}
 }
 
@@ -1410,7 +1612,9 @@ async function saveDefaultApprovalChain() {
   });
   showLoading('저장 중...');
   try {
-    const result = await api('settings_update', { settings: { default_approval_chain: JSON.stringify(steps) } });
+    const authorSign = document.getElementById('authorSignFirst');
+    AUTHOR_SIGN_FIRST = authorSign ? authorSign.checked : false;
+    const result = await api('settings_update', { settings: { default_approval_chain: JSON.stringify(steps), author_sign_first: AUTHOR_SIGN_FIRST ? 'true' : 'false' } });
     hideLoading();
     if (result.success) showToast('기본 결재선이 저장되었습니다.');
     else showToast(result.error, 'danger');
@@ -1492,12 +1696,15 @@ function categoryBadge(cat) {
 }
 
 
-// ── 분류 항목 관리 ─────────────────────────────────
+// ── 문서 종류 항목 관리 ─────────────────────────────────
 async function loadCategoriesFromServer() {
   try {
     const result = await api('settings_get', {});
-    if (result.success && result.settings.doc_categories) {
-      try { DOC_CATEGORIES = JSON.parse(result.settings.doc_categories); } catch(e) {}
+    if (result.success) {
+      const s = result.settings;
+      if (s.doc_categories) { try { DOC_CATEGORIES = JSON.parse(s.doc_categories); } catch(e) {} }
+      AUTHOR_SIGN_FIRST = s.author_sign_first === 'true';
+      try { DOC_TYPE_PATHS = JSON.parse(s.doc_type_paths || '{}'); } catch(e) {}
     }
   } catch(ex) {}
 }
@@ -1506,7 +1713,7 @@ function renderCategoryList() {
   const el = document.getElementById('categoryList');
   if (!el) return;
   if (!DOC_CATEGORIES.length) {
-    el.innerHTML = '<div class="text-muted text-center py-2" style="font-size:12px">분류 항목이 없습니다.</div>';
+    el.innerHTML = '<div class="text-muted text-center py-2" style="font-size:12px">문서 종류 항목이 없습니다.</div>';
     return;
   }
   el.innerHTML = DOC_CATEGORIES.map((c, i) => `
@@ -1550,7 +1757,7 @@ async function saveCategorySettings() {
   try {
     const result = await api('settings_update', { settings: { doc_categories: JSON.stringify(DOC_CATEGORIES) } });
     hideLoading();
-    if (result.success) showToast('분류 항목이 저장되었습니다.');
+    if (result.success) showToast('문서 종류 항목이 저장되었습니다.');
     else showToast(result.error, 'danger');
   } catch(ex) { hideLoading(); }
 }
@@ -1563,6 +1770,163 @@ function populateCategorySelect(selectId, selectedValue) {
     `<option value="${esc(c.value)}" ${c.value===currentVal?'selected':''}>${esc(c.label)}</option>`
   ).join('');
 }
+
+// ── BOM 검색 ─────────────────────────────────
+function toggleManualTitleMode(checked) {
+  const bomSec = document.getElementById('bomSearchSection');
+  const manSec = document.getElementById('manualTitleSection');
+  const autoP = document.getElementById('autoDocTitlePreview');
+  if (bomSec) bomSec.style.display = checked ? 'none' : 'block';
+  if (manSec) manSec.style.display = checked ? 'block' : 'none';
+  if (autoP) autoP.style.display = checked ? 'none' : '';
+}
+
+function onBomSearch(query) {
+  clearTimeout(bomSearchTimer);
+  const dd = document.getElementById('bomDropdown');
+  if (!query || query.length < 1) { dd.style.display = 'none'; return; }
+  bomSearchTimer = setTimeout(() => {
+    const q = query.toLowerCase();
+    const results = BOM_DATA.filter(p =>
+      String(p.product_name||'').toLowerCase().includes(q) ||
+      String(p.product_code||'').toLowerCase().includes(q)
+    ).slice(0, 15);
+    if (!results.length) {
+      dd.innerHTML = '<div class="list-group-item text-muted" style="font-size:12px">검색 결과 없음</div>';
+      dd.style.display = 'block';
+      return;
+    }
+    dd.innerHTML = results.map(p =>
+      `<button type="button" class="list-group-item list-group-item-action py-1" style="font-size:13px" onclick="selectBomProduct('${esc(p.product_code)}','${esc(p.product_name)}')">${esc(p.product_name)} <small class="text-muted">(${esc(p.product_code)})</small></button>`
+    ).join('');
+    dd.style.display = 'block';
+  }, 150);
+}
+
+function selectBomProduct(code, name) {
+  document.getElementById('bomSearchInput').value = name;
+  document.getElementById('selectedProductCode').value = code;
+  document.getElementById('selectedProductText').textContent = '제품코드: ' + code;
+  document.getElementById('selectedProductInfo').style.display = 'block';
+  document.getElementById('bomDropdown').style.display = 'none';
+  updateAutoDocTitle();
+}
+
+function updateAutoDocTitle() {
+  const bomInput = document.getElementById('bomSearchInput');
+  const autoP = document.getElementById('autoDocTitlePreview');
+  if (!bomInput || !autoP) return;
+  const productName = bomInput.value.trim();
+  const docTypeSel = document.getElementById('newDocCategory');
+  const docTypeLabel = docTypeSel && docTypeSel.selectedIndex >= 0 ? docTypeSel.options[docTypeSel.selectedIndex].text : '';
+  autoP.textContent = productName ? (productName + (docTypeLabel ? ' - ' + docTypeLabel : '')) : '제품명 선택 시 자동 생성';
+}
+
+async function loadBomData() {
+  try {
+    const result = await api('bom_qa_search', { query: '' });
+    if (result.success) BOM_DATA = result.products || [];
+  } catch(ex) {}
+}
+
+async function loadBomProductCount() {
+  try {
+    const result = await api('bom_qa_search', { query: '' });
+    if (result.success && result.products) {
+      BOM_DATA = result.products;
+      const cntEl = document.getElementById('bomProductCount');
+      const numEl = document.getElementById('bomCountNum');
+      if (cntEl && numEl) { numEl.textContent = result.products.length; cntEl.style.display = 'block'; }
+    }
+  } catch(ex) {}
+}
+
+// ── BOM 업로드 ─────────────────────────────────
+function handleBomUpload(file) {
+  if (!file.name.match(/\.xlsx?$/i)) { showToast('엑셀(.xlsx) 파일만 가능합니다.', 'danger'); return; }
+  const statusEl = document.getElementById('bomUploadStatus');
+  statusEl.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>파일 분석 중...</span>';
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      // product_code, product_name 컬럼 찾기
+      const codeKey = Object.keys(rows[0] || {}).find(k => k.toLowerCase().includes('product_code') || k === '완제품코드' || k === '제품코드');
+      const nameKey = Object.keys(rows[0] || {}).find(k => k.toLowerCase().includes('product_name') || k === '완제품명' || k === '제품명');
+      if (!codeKey || !nameKey) {
+        statusEl.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>product_code, product_name 컬럼을 찾을 수 없습니다.</span>';
+        return;
+      }
+      // 고유 제품 추출
+      const seen = new Set();
+      const products = [];
+      rows.forEach(r => {
+        const code = String(r[codeKey]).trim();
+        const name = String(r[nameKey]).trim();
+        if (code && name && !seen.has(code)) { seen.add(code); products.push({ product_code: code, product_name: name }); }
+      });
+      statusEl.innerHTML = `<span class="text-info"><i class="bi bi-cloud-upload me-1"></i>${products.length}개 제품 업로드 중...</span>`;
+      const result = await api('bom_qa_upload', { products });
+      if (result.success) {
+        statusEl.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${result.count}개 제품 등록 완료!</span>`;
+        BOM_DATA = products;
+        const numEl = document.getElementById('bomCountNum');
+        const cntEl = document.getElementById('bomProductCount');
+        if (numEl) numEl.textContent = products.length;
+        if (cntEl) cntEl.style.display = 'block';
+      } else { statusEl.innerHTML = `<span class="text-danger">${esc(result.error)}</span>`; }
+    } catch(err) {
+      statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>파일 파싱 오류: ${esc(err.message)}</span>`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── 문서 종류별 경로 ─────────────────────────────────
+function renderDocTypePathList() {
+  const el = document.getElementById('docTypePathList');
+  if (!el) return;
+  el.innerHTML = DOC_CATEGORIES.map(c => {
+    const path = DOC_TYPE_PATHS[c.value] || ('승인문서/{year}/{month}/' + c.value);
+    return `<div class="row g-2 align-items-center mb-2">
+      <div class="col-4 col-md-3"><span class="badge" style="background:#e0f2f2;color:#004d4d;font-size:12px">${esc(c.label)}</span></div>
+      <div class="col-8 col-md-9"><input type="text" class="form-control form-control-sm doc-type-path" data-type="${esc(c.value)}" value="${esc(path)}"></div>
+    </div>`;
+  }).join('');
+}
+
+async function saveDocTypePaths() {
+  const paths = {};
+  document.querySelectorAll('.doc-type-path').forEach(el => { paths[el.dataset.type] = el.value.trim(); });
+  DOC_TYPE_PATHS = paths;
+  showLoading('저장 중...');
+  try {
+    const result = await api('settings_update', { settings: { doc_type_paths: JSON.stringify(paths) } });
+    hideLoading();
+    if (result.success) showToast('경로가 저장되었습니다.');
+    else showToast(result.error, 'danger');
+  } catch(ex) { hideLoading(); }
+}
+
+// ── 로그인 이력 ─────────────────────────────────
+async function loadLoginHistory() {
+  const tbody = document.getElementById('loginHistoryTbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+  try {
+    const result = await api('login_history', {});
+    if (!result.success) { tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">${esc(result.error)}</td></tr>`; return; }
+    if (!result.history.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">이력이 없습니다.</td></tr>'; return; }
+    tbody.innerHTML = result.history.map(h =>
+      `<tr><td>${esc(h.username)}</td><td>${esc(h.name)}</td><td style="font-size:12px">${formatDateTime(h.login_at)}</td><td style="font-size:12px">${esc(h.ip || '-')}</td></tr>`
+    ).join('');
+  } catch(ex) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">로딩 오류</td></tr>';
+  }
+}
+
 // ============================================================
 // 초기화
 // ============================================================
@@ -1573,9 +1937,16 @@ document.addEventListener('DOMContentLoaded', function() {
   setupDropZone('docDropZone', 'docFileInput', handleDocFile);
   setupDropZone('sigDropZone', 'sigFileInput', handleSigFile);
   setupDropZone('tplDropZone', 'tplFileInput', handleTplFile);
+  setupDropZone('bomUploadZone', 'bomFileInput', handleBomUpload);
 
   // 검색 엔터키
   document.getElementById('searchQuery').addEventListener('keypress', e => { if (e.key === 'Enter') doSearch(); });
+
+  // BOM 드롭다운 외부 클릭시 닫기
+  document.addEventListener('click', function(e) {
+    const dd = document.getElementById('bomDropdown');
+    if (dd && !e.target.closest('#bomSearchSection')) dd.style.display = 'none';
+  });
 
   // 20초마다 알림 + 대시보드 자동 갱신
   setInterval(() => {

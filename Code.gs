@@ -40,7 +40,7 @@ function initializeSheets(ss) {
   sh.getRange(1, 1, 1, 10).setValues([['id','name','category','description','file_id','signature_config','approval_steps','created_at','created_by','status']]);
 
   sh = ss.insertSheet('문서');
-  sh.getRange(1, 1, 1, 19).setValues([['id','doc_number','title','template_id','category','file_id','creator_id','creator_name','status','current_step','created_at','updated_at','pdf_file_id','pdf_url','save_path','approval_config','rejection_comment','rejection_by','file_type']]);
+  sh.getRange(1, 1, 1, 20).setValues([['id','doc_number','title','template_id','category','file_id','creator_id','creator_name','status','current_step','created_at','updated_at','pdf_file_id','pdf_url','save_path','approval_config','rejection_comment','rejection_by','file_type','product_code']]);
 
   sh = ss.insertSheet('결재이력');
   sh.getRange(1, 1, 1, 13).setValues([['id','doc_id','step_order','step_name','approver_id','approver_name','approver_dept','approver_position','status','signed_at','comment','signature_applied','signature_file_id']]);
@@ -50,7 +50,7 @@ function initializeSheets(ss) {
 
   sh = ss.insertSheet('설정');
   sh.getRange(1, 1, 1, 2).setValues([['key','value']]);
-  sh.getRange(2, 1, 5, 2).setValues([
+  sh.getRange(2, 1, 7, 2).setValues([
     ['webhook_url', ''],
     ['save_path_template', '승인문서/{year}/{month}'],
     ['company_name', '(주)새한화장품'],
@@ -60,8 +60,16 @@ function initializeSheets(ss) {
       {value:'검사기록', label:'검사 기록서'},
       {value:'시험의뢰', label:'시험 의뢰서'},
       {value:'기타', label:'기타'}
-    ])]
+    ])],
+    ['doc_type_paths', '{}'],
+    ['author_sign_first', 'false']
   ]);
+
+  sh = ss.insertSheet('BOM_QA');
+  sh.getRange(1, 1, 1, 3).setValues([['product_code','product_name','updated_at']]);
+
+  sh = ss.insertSheet('로그인이력');
+  sh.getRange(1, 1, 1, 6).setValues([['id','user_id','username','name','login_at','ip']]);
 
   const userSheet = ss.getSheetByName('사용자');
   userSheet.getRange(2, 1, 1, 11).setValues([[
@@ -132,6 +140,9 @@ function doPost(e) {
       case 'dashboard': result = getDashboard(data); break;
 
       case 'get_signature_image': result = getSignatureImage(data); break;
+      case 'bom_qa_upload': result = bomQaUpload(data); break;
+      case 'bom_qa_search': result = bomQaSearch(data); break;
+      case 'login_history': result = getLoginHistory(data); break;
 
       default: result = { success: false, error: '알 수 없는 요청: ' + action };
     }
@@ -183,6 +194,21 @@ function getSheet(name) {
   return sh;
 }
 
+// ========== 캐시 유틸리티 ==========
+// GAS CacheService 래퍼 (콜드 스타트 및 반복 Sheets 읽기 최소화)
+const _CACHE = CacheService.getScriptCache();
+const _CACHE_TTL = 300; // 기본 5분
+
+function cacheGet(key) {
+  try { const v = _CACHE.get('qa_' + key); return v ? JSON.parse(v) : null; } catch(e) { return null; }
+}
+function cachePut(key, data, ttl) {
+  try { _CACHE.put('qa_' + key, JSON.stringify(data), ttl || _CACHE_TTL); } catch(e) {}
+}
+function cacheDel(key) {
+  try { _CACHE.remove('qa_' + key); } catch(e) {}
+}
+
 function findRowIndex(sheet, colIndex, value) {
   const data = sheet.getDataRange().getValues();
   const strVal = String(value);
@@ -219,6 +245,8 @@ function handleLogin(data) {
     department: user.department, position: user.position, role: user.role,
     signature_file_id: user.signature_file_id || '', email: user.email || ''
   }), 21600);
+  // 로그인 이력 기록
+  try { recordLoginHistory(String(user.id), user.username, user.name, data.ip || ''); } catch(e) {}
   return {
     success: true,
     token: token,
@@ -266,9 +294,11 @@ function handleChangePassword(data) {
 // ========== 사용자 관리 ==========
 function getUsers(data) {
   getSessionUser(data);
+  const cached = cacheGet('users');
+  if (cached) return cached;
   const sh = getSheet('사용자');
   const users = sheetToObjects(sh).filter(u => u.status === 'active');
-  return {
+  const result = {
     success: true,
     users: users.map(u => ({
       id: String(u.id), username: u.username, name: u.name,
@@ -277,6 +307,8 @@ function getUsers(data) {
       created_at: u.created_at
     }))
   };
+  cachePut('users', result, 300);
+  return result;
 }
 
 function addUser(data) {
@@ -294,6 +326,7 @@ function addUser(data) {
     '', new Date().toISOString(), 'active', data.email || ''
   ]);
   SpreadsheetApp.flush();
+  cacheDel('users'); // 사용자 캐시 무효화
   return { success: true, id: id };
 }
 
@@ -312,6 +345,7 @@ function updateUser(data) {
   if (data.password) sh.getRange(rowIdx, 3).setValue(hashPassword(data.password));
   if (data.email !== undefined) sh.getRange(rowIdx, 11).setValue(data.email);
   SpreadsheetApp.flush();
+  cacheDel('users'); // 사용자 캐시 무효화
   return { success: true };
 }
 
@@ -323,6 +357,7 @@ function deleteUser(data) {
   if (rowIdx < 0) return { success: false, error: '사용자를 찾을 수 없습니다.' };
   sh.getRange(rowIdx, 10).setValue('inactive');
   SpreadsheetApp.flush();
+  cacheDel('users'); // 사용자 캐시 무효화
   return { success: true };
 }
 
@@ -345,6 +380,7 @@ function uploadSignature(data) {
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   sh.getRange(rowIdx, 8).setValue(file.getId());
   SpreadsheetApp.flush();
+  cacheDel('users'); // 사용자 캐시 무효화
   return { success: true, file_id: file.getId() };
 }
 
@@ -467,13 +503,32 @@ function createDocument(data) {
     id, docNumber, data.title, data.template_id || '', data.category || '성적서',
     file.getId(), user.id, user.name, 'draft', 0,
     new Date().toISOString(), new Date().toISOString(),
-    '', '', data.save_path || '', approvalConfig, '', '', fileType
+    '', '', data.save_path || '', approvalConfig, '', '', fileType,
+    data.product_code || '' // col 20: 제품코드
   ]);
 
   // 결재이력 초기 생성
   const steps = JSON.parse(approvalConfig);
   const approvalSh = getSheet('결재이력');
+  let stepOffset = 0;
+
+  // 작성자 서명 자동 포함 옵션
+  if (data.include_author_signature === true || data.include_author_signature === 'true') {
+    if (steps.length > 0) {
+      const userShA = getSheet('사용자');
+      const creatorRow = findRowIndex(userShA, 0, user.id);
+      const creatorSigId = creatorRow > 0 ? userShA.getRange(creatorRow, 8).getValue() || '' : '';
+      approvalSh.appendRow([
+        generateId(), id, 1, '작성', user.id, user.name,
+        user.department, user.position, 'approved',
+        new Date().toISOString(), '작성자 서명', 'Y', creatorSigId
+      ]);
+      stepOffset = 1;
+    }
+  }
+
   steps.forEach((step, idx) => {
+    const actualStepNum = idx + 1 + stepOffset;
     // 결재자의 최신 서명 파일 ID를 사용자 시트에서 가져옴
     let sigFileId = step.signature_file_id || '';
     if (!sigFileId && step.approver_id) {
@@ -482,13 +537,14 @@ function createDocument(data) {
       if (userRow > 0) sigFileId = userSh.getRange(userRow, 8).getValue() || '';
     }
     approvalSh.appendRow([
-      generateId(), id, idx + 1, step.name, step.approver_id,
+      generateId(), id, actualStepNum, step.name, step.approver_id,
       step.approver_name, step.approver_dept || '', step.approver_position || '',
       idx === 0 ? 'pending' : 'waiting', '', '', '', sigFileId
     ]);
   });
 
   SpreadsheetApp.flush();
+  cacheDel('dashboard_' + user.id); // 대시보드 캐시 무효화
   return { success: true, id: id, doc_number: docNumber };
 }
 
@@ -609,7 +665,14 @@ function submitForApproval(data) {
 
   if (approvals.length > 0) {
     const title = sh.getRange(rowIdx, 3).getValue();
-    createNotification(String(approvals[0].approver_id), data.doc_id, 'approval_request',
+    // 작성자 서명이 이미 포함된 경우 첫 번째 pending 단계로 알림
+    const firstPending = approvals.find(a => a.status === 'pending');
+    const notifyTarget = firstPending || approvals[0];
+    if (firstPending) {
+      sh.getRange(rowIdx, 10).setValue(Number(firstPending.step_order));
+      SpreadsheetApp.flush();
+    }
+    createNotification(String(notifyTarget.approver_id), data.doc_id, 'approval_request',
       user.name + '님이 "' + title + '" 문서의 결재를 요청했습니다.', title);
   }
 
@@ -697,6 +760,9 @@ function approveDocument(data) {
       '"' + docTitle + '" 문서가 최종 승인되었습니다.', docTitle);
   }
 
+  // 결재 처리 후 관련 사용자 대시보드 캐시 무효화
+  cacheDel('dashboard_' + String(user.id));
+  cacheDel('dashboard_' + creatorId);
   return { success: true, is_final: !nextStep };
 }
 
@@ -768,17 +834,19 @@ function autoSavePdf(docId, docRowIdx, docSh) {
   if (!fileId) return;
 
   const root = getDriveRootFolder();
-  const settingSh = getSheet('설정');
-  const settings = sheetToObjects(settingSh);
-  let pathTemplate = '승인문서/{year}/{month}';
-  const pathSetting = settings.find(s => s.key === 'save_path_template');
-  if (pathSetting && pathSetting.value) pathTemplate = pathSetting.value;
-
+  // 캐시된 설정 + 문서 종류별 경로
+  const settingsResult = getSettings();
+  const docCategory = docSh.getRange(docRowIdx, 5).getValue() || '';
+  let docTypePaths = {};
+  try { docTypePaths = JSON.parse(settingsResult.settings.doc_type_paths || '{}'); } catch(e) {}
+  const basePathTemplate = settingsResult.settings.save_path_template || '승인문서/{year}/{month}';
+  const pathTemplate = docTypePaths[docCategory] || (basePathTemplate + '/' + docCategory);
   const customPath = docSh.getRange(docRowIdx, 15).getValue();
   const now = new Date();
   let folderPath = pathTemplate
-    .replace('{year}', now.getFullYear())
-    .replace('{month}', ('0' + (now.getMonth()+1)).slice(-2));
+    .replace('{year}', String(now.getFullYear()))
+    .replace('{month}', ('0' + (now.getMonth()+1)).slice(-2))
+    .replace('{doc_type}', docCategory);
   if (customPath) folderPath = customPath;
 
   const targetFolder = createFolderPath(root, folderPath);
@@ -855,11 +923,9 @@ function savePdfToDrive(data) {
   if (docRowIdx < 0) return { success: false, error: '문서를 찾을 수 없습니다.' };
 
   const root = getDriveRootFolder();
-  const settingSh = getSheet('설정');
-  const settings = sheetToObjects(settingSh);
-  let pathTemplate = '승인문서/{year}/{month}';
-  const pathSetting = settings.find(s => s.key === 'save_path_template');
-  if (pathSetting && pathSetting.value) pathTemplate = pathSetting.value;
+  // 캐시된 설정 사용
+  const settingsResult = getSettings();
+  const pathTemplate = settingsResult.settings.save_path_template || '승인문서/{year}/{month}';
 
   const savePath = data.save_path || docSh.getRange(docRowIdx, 15).getValue() || '';
   const now = new Date();
@@ -923,10 +989,9 @@ function markNotificationRead(data) {
 }
 
 function sendWebhook(message) {
-  const sh = getSheet('설정');
-  const settings = sheetToObjects(sh);
-  const webhookSetting = settings.find(s => s.key === 'webhook_url');
-  const url = webhookSetting ? String(webhookSetting.value || '').trim() : '';
+  // 캐시된 설정 사용 (매 알림마다 Sheets 읽기 방지)
+  const settingsResult = getSettings();
+  const url = String(settingsResult.settings.webhook_url || '').trim();
   if (!url || url.length < 10) return;
 
   const fullMessage = '[품질전자결재] ' + message;
@@ -974,11 +1039,15 @@ function sendWebhook(message) {
 
 // ========== 설정 ==========
 function getSettings() {
+  const cached = cacheGet('settings');
+  if (cached) return cached;
   const sh = getSheet('설정');
   const data = sheetToObjects(sh);
   const settings = {};
   data.forEach(row => settings[row.key] = row.value);
-  return { success: true, settings: settings };
+  const result = { success: true, settings: settings };
+  cachePut('settings', result, 300);
+  return result;
 }
 
 function updateSettings(data) {
@@ -999,12 +1068,18 @@ function updateSettings(data) {
     if (!found) sh.appendRow([key, updates[key]]);
   });
   SpreadsheetApp.flush();
+  cacheDel('settings'); // 설정 캐시 무효화
   return { success: true };
 }
 
 // ========== 대시보드 ==========
 function getDashboard(data) {
   const user = getSessionUser(data);
+  const uid = String(user.id);
+  // 사용자별 대시보드 60초 캐시
+  const cacheKey = 'dashboard_' + uid;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
   const docSh = getSheet('문서');
   const docs = sheetToObjects(docSh).filter(d => d.status !== 'deleted');
   docs.forEach(d => { d.id = String(d.id); d.creator_id = String(d.creator_id); });
@@ -1012,13 +1087,12 @@ function getDashboard(data) {
   const approvals = sheetToObjects(approvalSh);
   approvals.forEach(a => { a.approver_id = String(a.approver_id); a.doc_id = String(a.doc_id); });
 
-  const uid = String(user.id);
   const myCreated = docs.filter(d => d.creator_id === uid);
   const pendingApproval = approvals.filter(a => a.approver_id === uid && a.status === 'pending');
   const pendingDocIds = pendingApproval.map(a => a.doc_id);
   const pendingDocs = docs.filter(d => pendingDocIds.includes(d.id));
 
-  return {
+  const result = {
     success: true,
     stats: {
       total_docs: docs.length,
@@ -1031,6 +1105,8 @@ function getDashboard(data) {
     recent_docs: docs.slice(0, 10),
     pending_docs: pendingDocs
   };
+  cachePut(cacheKey, result, 60); // 60초 캐시
+  return result;
 }
 
 // ========== 드라이브 유틸리티 ==========
@@ -1070,6 +1146,69 @@ function getSignatureImage(data) {
   } catch(e) {
     return { success: false, error: '서명 파일을 불러올 수 없습니다.' };
   }
+}
+
+
+// ========== 로그인 이력 ==========
+function recordLoginHistory(userId, username, name, ip) {
+  try {
+    const sh = getSheet('로그인이력');
+    sh.appendRow([generateId(), userId, username, name, new Date().toISOString(), ip || '']);
+  } catch(e) { Logger.log('로그인이력 오류: ' + e.message); }
+}
+
+function getLoginHistory(data) {
+  const user = getSessionUser(data);
+  if (user.role !== 'admin') return { success: false, error: '관리자 권한이 필요합니다.' };
+  const sh = getSheet('로그인이력');
+  const history = sheetToObjects(sh).map(r => ({
+    id: String(r.id), user_id: String(r.user_id), username: String(r.username),
+    name: String(r.name), login_at: String(r.login_at), ip: String(r.ip || '')
+  })).sort((a, b) => new Date(b.login_at) - new Date(a.login_at));
+  return { success: true, history: history.slice(0, 200) };
+}
+
+// ========== BOM 제품 데이터 ==========
+function bomQaUpload(data) {
+  const user = getSessionUser(data);
+  if (user.role !== 'admin') return { success: false, error: '관리자 권한이 필요합니다.' };
+  if (!data.products || !Array.isArray(data.products)) return { success: false, error: '제품 데이터가 없습니다.' };
+  const sh = getSheet('BOM_QA');
+  const lastRow = sh.getLastRow();
+  if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, 3).clearContent();
+  if (data.products.length > 0) {
+    const now = new Date().toISOString();
+    sh.getRange(2, 1, data.products.length, 3).setValues(
+      data.products.map(p => [String(p.product_code || ''), String(p.product_name || ''), now])
+    );
+  }
+  cacheDel('bom_qa');
+  SpreadsheetApp.flush();
+  return { success: true, count: data.products.length };
+}
+
+function bomQaSearch(data) {
+  getSessionUser(data);
+  const cached = cacheGet('bom_qa');
+  let rows = cached;
+  if (!rows) {
+    const sh = getSheet('BOM_QA');
+    rows = sheetToObjects(sh).filter(p => p.product_code || p.product_name);
+    cachePut('bom_qa', rows, 600); // 10분
+  }
+  const q = (data.query || '').toLowerCase().trim();
+  const filtered = q
+    ? rows.filter(p => String(p.product_name||'').toLowerCase().includes(q) || String(p.product_code||'').toLowerCase().includes(q))
+    : rows;
+  return { success: true, products: filtered.slice(0, 30) };
+}
+
+// ========== Keep-Warm (콜드 스타트 방지) ==========
+// 시간 기반 트리거로 5~10분마다 실행 설정 권장
+// Apps Script 편집기 → 트리거 → 새 트리거 → keepWarm → 시간 기반 → 5분마다
+function keepWarm() {
+  // 인스턴스를 활성 상태로 유지 (GAS 콜드 스타트 방지)
+  Logger.log('keepWarm: ' + new Date().toISOString());
 }
 
 // ========== 초기 설정 실행 ==========
