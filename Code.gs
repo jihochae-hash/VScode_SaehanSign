@@ -34,7 +34,7 @@ function initializeSheets(ss) {
   let sh = ss.getSheetByName('Sheet1');
   if (sh) sh.setName('사용자');
   else sh = ss.insertSheet('사용자');
-  sh.getRange(1, 1, 1, 11).setValues([['id','username','password','name','department','position','role','signature_file_id','created_at','status','email']]);
+  sh.getRange(1, 1, 1, 12).setValues([['id','username','password','name','department','position','role','signature_file_id','created_at','status','email','webhook_url']]);
 
   sh = ss.insertSheet('템플릿');
   sh.getRange(1, 1, 1, 10).setValues([['id','name','category','description','file_id','signature_config','approval_steps','created_at','created_by','status']]);
@@ -78,8 +78,14 @@ function initializeSheets(ss) {
 }
 
 // ========== 웹앱 ==========
+function getDeployedUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('index')
+  const template = HtmlService.createTemplateFromFile('index');
+  template.deployedUrl = getDeployedUrl();
+  return template.evaluate()
     .setTitle('SaehanSign - 새한 문서 전자결재 시스템')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -323,7 +329,7 @@ function addUser(data) {
   sh.appendRow([
     id, data.username, hashPassword(data.password || '1234'),
     data.name, data.department, data.position, data.role || 'user',
-    '', new Date().toISOString(), 'active', data.email || ''
+    '', new Date().toISOString(), 'active', data.email || '', data.webhook_url || ''
   ]);
   SpreadsheetApp.flush();
   cacheDel('users'); // 사용자 캐시 무효화
@@ -344,6 +350,7 @@ function updateUser(data) {
   if (data.role && admin.role === 'admin') sh.getRange(rowIdx, 7).setValue(data.role);
   if (data.password) sh.getRange(rowIdx, 3).setValue(hashPassword(data.password));
   if (data.email !== undefined) sh.getRange(rowIdx, 11).setValue(data.email);
+  if (data.webhook_url !== undefined) sh.getRange(rowIdx, 12).setValue(data.webhook_url);
   SpreadsheetApp.flush();
   cacheDel('users'); // 사용자 캐시 무효화
   return { success: true };
@@ -1047,7 +1054,7 @@ function createNotification(userId, docId, type, message, docTitle) {
     generateId(), docId, userId, type, message, 'N', new Date().toISOString(), docTitle || ''
   ]);
   SpreadsheetApp.flush();
-  sendWebhook(message);
+  sendWebhook(message, userId);
 }
 
 function getNotifications(data) {
@@ -1078,53 +1085,70 @@ function markNotificationRead(data) {
   return { success: true };
 }
 
-function sendWebhook(message) {
-  // 캐시된 설정 사용 (매 알림마다 Sheets 읽기 방지)
+function sendWebhook(message, targetUserId) {
+  const fullMessage = '[SaehanSign] ' + message;
+
+  // 전송할 URL 목록 수집 (중복 제거)
+  const urls = new Set();
+
+  // 1) 글로벌 웹훅 URL
   const settingsResult = getSettings();
-  const url = String(settingsResult.settings.webhook_url || '').trim();
-  if (!url || url.length < 10) return;
+  const globalUrl = String(settingsResult.settings.webhook_url || '').trim();
+  if (globalUrl && globalUrl.length >= 10) urls.add(globalUrl);
 
-  const fullMessage = '[품질전자결재] ' + message;
-
-  try {
-    let payload;
-    let contentType = 'application/json';
-    if (url.includes('chat.googleapis.com')) {
-      // Google Chat 웹훅
-      payload = JSON.stringify({ text: fullMessage });
-    } else if (url.includes('hooks.slack.com')) {
-      // Slack 웹훅
-      payload = JSON.stringify({ text: fullMessage });
-    } else if (url.includes('discord.com')) {
-      // Discord 웹훅
-      payload = JSON.stringify({ content: fullMessage });
-    } else if (url.includes('jandi.com') || url.includes('wh.jandi')) {
-      // 잔디(JANDI) 웹훅
-      payload = JSON.stringify({
-        body: fullMessage,
-        connectColor: '#FAC11B',
-        connectInfo: [{ title: '품질전자결재', description: fullMessage }]
-      });
-    } else {
-      // 범용 (text 필드)
-      payload = JSON.stringify({ text: fullMessage, message: fullMessage, content: fullMessage });
-    }
-
-    const response = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: contentType,
-      payload: payload,
-      muteHttpExceptions: true,
-      followRedirects: true
-    });
-
-    const code = response.getResponseCode();
-    if (code < 200 || code >= 300) {
-      Logger.log('Webhook failed: HTTP ' + code + ' / URL: ' + url.substring(0, 50) + '... / Response: ' + response.getContentText().substring(0, 200));
-    }
-  } catch(e) {
-    Logger.log('Webhook error: ' + e.message + ' / URL: ' + url.substring(0, 50));
+  // 2) 대상 사용자 개인 웹훅 URL
+  if (targetUserId) {
+    try {
+      const userSh = getSheet('사용자');
+      const userData = userSh.getDataRange().getValues();
+      for (let i = 1; i < userData.length; i++) {
+        if (String(userData[i][0]) === String(targetUserId)) {
+          const userWebhook = String(userData[i][11] || '').trim();
+          if (userWebhook && userWebhook.length >= 10) urls.add(userWebhook);
+          break;
+        }
+      }
+    } catch(e) {}
   }
+
+  if (urls.size === 0) return;
+
+  urls.forEach(function(url) {
+    try {
+      let payload;
+      let contentType = 'application/json';
+      if (url.includes('chat.googleapis.com')) {
+        payload = JSON.stringify({ text: fullMessage });
+      } else if (url.includes('hooks.slack.com')) {
+        payload = JSON.stringify({ text: fullMessage });
+      } else if (url.includes('discord.com')) {
+        payload = JSON.stringify({ content: fullMessage });
+      } else if (url.includes('jandi.com') || url.includes('wh.jandi')) {
+        payload = JSON.stringify({
+          body: fullMessage,
+          connectColor: '#FAC11B',
+          connectInfo: [{ title: 'SaehanSign', description: fullMessage }]
+        });
+      } else {
+        payload = JSON.stringify({ text: fullMessage, message: fullMessage, content: fullMessage });
+      }
+
+      const response = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: contentType,
+        payload: payload,
+        muteHttpExceptions: true,
+        followRedirects: true
+      });
+
+      const code = response.getResponseCode();
+      if (code < 200 || code >= 300) {
+        Logger.log('Webhook failed: HTTP ' + code + ' / URL: ' + url.substring(0, 50) + '...');
+      }
+    } catch(e) {
+      Logger.log('Webhook error: ' + e.message + ' / URL: ' + url.substring(0, 50));
+    }
+  });
 }
 
 // ========== 설정 ==========
