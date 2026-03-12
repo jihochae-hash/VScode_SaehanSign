@@ -80,7 +80,7 @@ function initializeSheets(ss) {
 // ========== 웹앱 ==========
 function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('품질 전자결재 시스템')
+    .setTitle('SaehanSign - 새한 문서 전자결재 시스템')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
@@ -834,7 +834,7 @@ function autoSavePdf(docId, docRowIdx, docSh) {
   if (!fileId) return;
 
   const root = getDriveRootFolder();
-  // 캐시된 설정 + 문서 종류별 경로
+  // 설정 + 문서 종류별 경로
   const settingsResult = getSettings();
   const docCategory = docSh.getRange(docRowIdx, 5).getValue() || '';
   let docTypePaths = {};
@@ -855,46 +855,136 @@ function autoSavePdf(docId, docRowIdx, docSh) {
   const fileName = docNumber + '_' + docTitle + '.pdf';
 
   const originalFile = DriveApp.getFileById(fileId);
-  let savedFile;
-  let savedUrl;
   const origMime = originalFile.getMimeType();
+  let savedFile;
+
+  // 결재이력 가져오기
+  const approvalSh = getSheet('결재이력');
+  const approvals = sheetToObjects(approvalSh)
+    .filter(a => String(a.doc_id) === String(docId))
+    .sort((a, b) => Number(a.step_order) - Number(b.step_order));
 
   if (origMime === 'application/pdf') {
-    // PDF 그대로 복사
+    // PDF는 직접 결재란 삽입 불가 → 원본 복사
     const blob = originalFile.getBlob().setName(fileName);
     savedFile = targetFolder.createFile(blob);
   } else {
-    // Excel → Google Sheets 변환 후 PDF 추출
+    // Excel → 임시 Google Sheets로 복사 → 결재란 삽입 → PDF 변환
+    let tempFile = null;
     try {
-      let pdfBlob;
-      try {
-        pdfBlob = originalFile.getAs('application/pdf').setName(fileName);
-      } catch(convErr) {
-        // getAs 실패 시 xlsx 원본 파일명(.xlsx)으로 저장
-        const origExt = originalFile.getName().split('.').pop();
-        const origFileName = docNumber + '_' + docTitle + '.' + origExt;
-        const origBlob = originalFile.getBlob().setName(origFileName);
-        savedFile = targetFolder.createFile(origBlob);
-        savedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        docSh.getRange(docRowIdx, 13).setValue(savedFile.getId());
-        docSh.getRange(docRowIdx, 14).setValue(savedFile.getUrl());
-        docSh.getRange(docRowIdx, 15).setValue(folderPath);
-        SpreadsheetApp.flush();
-        Logger.log('PDF 변환 불가, 원본 저장: ' + convErr.message);
-        return;
-      }
+      tempFile = originalFile.makeCopy('temp_stamp_' + docId, root);
+      const ss = SpreadsheetApp.open(tempFile);
+      const sheet = ss.getSheets()[0];
+
+      // ── 결재란 삽입 (우측 상단) ──
+      embedApprovalStamp(sheet, approvals);
+      SpreadsheetApp.flush();
+
+      // PDF 변환
+      const pdfBlob = ss.getAs('application/pdf').setName(fileName);
       savedFile = targetFolder.createFile(pdfBlob);
-    } catch(e) {
-      Logger.log('PDF 저장 오류: ' + e.message);
-      throw e;
+    } catch(convErr) {
+      Logger.log('결재란+PDF 변환 실패, 원본 저장: ' + convErr.message);
+      // 실패 시 원본 xlsx 저장
+      const origExt = originalFile.getName().split('.').pop();
+      const origFileName = docNumber + '_' + docTitle + '.' + origExt;
+      savedFile = targetFolder.createFile(originalFile.getBlob().setName(origFileName));
+    } finally {
+      // 임시 파일 삭제
+      if (tempFile) { try { tempFile.setTrashed(true); } catch(e) {} }
     }
   }
-  savedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
+  savedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   docSh.getRange(docRowIdx, 13).setValue(savedFile.getId());
   docSh.getRange(docRowIdx, 14).setValue(savedFile.getUrl());
   docSh.getRange(docRowIdx, 15).setValue(folderPath);
   SpreadsheetApp.flush();
+}
+
+// ========== 결재란 삽입 (시트 우측 상단) ==========
+function embedApprovalStamp(sheet, approvals) {
+  if (!approvals || approvals.length === 0) return;
+
+  const stepCount = approvals.length;
+  // 5행을 상단에 삽입 (기존 내용은 아래로 밀림)
+  sheet.insertRowsBefore(1, 6);
+
+  // 결재란 시작 위치: 우측 정렬 (최소 E열부터)
+  const lastCol = Math.max(sheet.getLastColumn(), 4);
+  const startCol = Math.max(lastCol - stepCount + 1, 1);
+
+  // Row 1: 병합 타이틀
+  const titleRange = sheet.getRange(1, startCol, 1, stepCount);
+  titleRange.merge().setValue('결 재').setFontSize(9).setFontWeight('bold')
+    .setHorizontalAlignment('center').setVerticalAlignment('middle')
+    .setBackground('#e0f2f2').setBorder(true, true, true, true, false, false, '#006666', SpreadsheetApp.BorderStyle.SOLID);
+
+  for (let i = 0; i < stepCount; i++) {
+    const col = startCol + i;
+    const a = approvals[i];
+    const stepName = a.step_name || a.name || '결재';
+    const approverName = a.approver_name || '';
+    const isApproved = a.status === 'approved';
+    const approvedDate = a.approved_at ? formatShortDate(a.approved_at) : '';
+
+    // Row 2: 단계명 (작성/검토/승인)
+    sheet.getRange(2, col).setValue(stepName).setFontSize(8).setFontWeight('bold')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle')
+      .setBackground('#f5fafa');
+
+    // Row 3-4: 서명 영역 (이름 + 서명이미지)
+    sheet.getRange(3, col, 2, 1).merge();
+    if (isApproved) {
+      // 서명 이미지 삽입 시도
+      let sigInserted = false;
+      if (a.signature_file_id) {
+        try {
+          const sigFile = DriveApp.getFileById(a.signature_file_id);
+          const sigBlob = sigFile.getBlob();
+          sheet.insertImage(sigBlob, col, 3).setWidth(60).setHeight(32);
+          sigInserted = true;
+        } catch(e) {}
+      }
+      if (!sigInserted) {
+        sheet.getRange(3, col).setValue(approverName).setFontSize(10).setFontWeight('bold')
+          .setHorizontalAlignment('center').setVerticalAlignment('middle');
+      }
+    }
+
+    // Row 5: 결재자명
+    sheet.getRange(5, col).setValue(approverName).setFontSize(7)
+      .setHorizontalAlignment('center').setVerticalAlignment('middle');
+
+    // Row 6: 결재일
+    sheet.getRange(6, col).setValue(approvedDate).setFontSize(7).setFontColor('#666666')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle');
+  }
+
+  // 전체 결재란 테두리
+  const stampRange = sheet.getRange(1, startCol, 6, stepCount);
+  stampRange.setBorder(true, true, true, true, true, true, '#006666', SpreadsheetApp.BorderStyle.SOLID);
+
+  // 열 너비 조정
+  for (let i = 0; i < stepCount; i++) {
+    sheet.setColumnWidth(startCol + i, 72);
+  }
+  // 행 높이 조정
+  sheet.setRowHeight(1, 22);
+  sheet.setRowHeight(2, 20);
+  sheet.setRowHeight(3, 18);
+  sheet.setRowHeight(4, 18);
+  sheet.setRowHeight(5, 18);
+  sheet.setRowHeight(6, 16);
+}
+
+function formatShortDate(s) {
+  if (!s) return '';
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return '';
+    return (d.getMonth()+1) + '/' + d.getDate();
+  } catch(e) { return ''; }
 }
 
 // ========== 승인 문서 PDF 재생성/저장 ==========
@@ -1200,7 +1290,8 @@ function bomQaSearch(data) {
   const filtered = q
     ? rows.filter(p => String(p.product_name||'').toLowerCase().includes(q) || String(p.product_code||'').toLowerCase().includes(q))
     : rows;
-  return { success: true, products: filtered.slice(0, 30) };
+  // 빈 쿼리는 전체 반환 (프론트엔드 캐시용), 검색 시 50개 제한
+  return { success: true, products: q ? filtered.slice(0, 50) : filtered };
 }
 
 // ========== Keep-Warm (콜드 스타트 방지) ==========
