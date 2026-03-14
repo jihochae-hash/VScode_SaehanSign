@@ -1110,11 +1110,14 @@ function embedApprovalStamp(sheet, approvals) {
   sheet.getRange(1, startCol, STAMP_ROWS, stepCount)
     .setBorder(true, true, true, true, true, true, '#006666', SpreadsheetApp.BorderStyle.SOLID);
 
-  // ── 인쇄 범위를 딱 필요한 만큼만 확보 (2페이지 방지) ──
+  // ── 메모(Threaded comment 포함) 전체 삭제 → 2페이지 원인 차단 ──
+  try { sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).clearNote(); } catch(e) {}
+
+  // ── 인쇄 범위 초과 행 삭제 (빈 행 / 변환된 comment 텍스트 행 제거) ──
   const totalRows = STAMP_ROWS + contentLastRow;
   const maxRows = sheet.getMaxRows();
-  if (maxRows > totalRows + 2) {
-    try { sheet.deleteRows(totalRows + 1, maxRows - totalRows - 2); } catch(e) {}
+  if (maxRows > totalRows + 1) {
+    try { sheet.deleteRows(totalRows + 1, maxRows - totalRows); } catch(e) {}
   }
 
   // PDF 인쇄 범위 반환 (0-indexed)
