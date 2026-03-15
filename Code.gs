@@ -1084,17 +1084,21 @@ function embedApprovalStamp(sheet, approvals) {
   sheet.setRowHeight(4, 31);   // 이름/부서/직책
   sheet.setRowHeight(5, 17);   // 결재일
 
+  // ── 웹 화면과 동일한 폰트/서식 ──
+  var stampFont = 'Noto Sans KR';
+
   // ── Row 1: 단계명 헤더 ──
   for (let i = 0; i < stepCount; i++) {
     const col = startCol + i;
     const a = approvals[i];
     sheet.getRange(1, col).setValue(a.step_name || '결재')
-      .setFontSize(8).setFontWeight('bold')
+      .setFontFamily(stampFont).setFontSize(9).setFontWeight('bold')
+      .setFontColor('#004d4d')
       .setHorizontalAlignment('center').setVerticalAlignment('middle')
-      .setBackground('#e0f2f2');
+      .setBackground('#dff0f0');
   }
 
-  // ── Row 2-3: 서명 이미지 (병합, 이미지 크기 축소) ──
+  // ── Row 2-3: 서명 이미지 (병합, 가운데 배치) ──
   for (let i = 0; i < stepCount; i++) {
     const col = startCol + i;
     const a = approvals[i];
@@ -1107,26 +1111,33 @@ function embedApprovalStamp(sheet, approvals) {
         try {
           const sigFile = DriveApp.getFileById(a.signature_file_id);
           const sigBlob = sigFile.getBlob().setContentType(sigFile.getMimeType() || 'image/png');
-          sheet.insertImage(sigBlob, col, 2).setWidth(66).setHeight(50);
+          var sigImg = sheet.insertImage(sigBlob, col, 2);
+          sigImg.setWidth(66).setHeight(50);
+          sigImg.setAnchorCellXOffset(10);
+          sigImg.setAnchorCellYOffset(6);
           sigInserted = true;
         } catch(e) { Logger.log('서명 이미지 삽입 실패(col=' + col + '): ' + e.message); }
       }
       if (!sigInserted) {
         sheet.getRange(2, col).setValue(a.approver_name || '')
-          .setFontSize(9).setFontWeight('bold');
+          .setFontFamily(stampFont).setFontSize(10).setFontWeight('bold')
+          .setFontColor('#006666');
       }
     }
   }
 
-  // ── Row 4: 부서 + 이름 + 직책 ──
+  // ── Row 4: 부서 + 이름 직책 (2줄) ──
   for (let i = 0; i < stepCount; i++) {
     const col = startCol + i;
     const a = approvals[i];
+    const deptStr = a.approver_dept || '';
     const nameStr = [a.approver_name, a.approver_position].filter(Boolean).join(' ');
+    const cellText = deptStr ? deptStr + '\n' + nameStr : nameStr;
     sheet.getRange(4, col)
-      .setValue(nameStr)
-      .setFontSize(7).setHorizontalAlignment('center').setVerticalAlignment('middle')
-      .setWrap(false);
+      .setValue(cellText)
+      .setFontFamily(stampFont).setFontSize(8)
+      .setHorizontalAlignment('center').setVerticalAlignment('middle')
+      .setWrap(true);
   }
 
   // ── Row 5: 결재일 ──
@@ -1134,13 +1145,14 @@ function embedApprovalStamp(sheet, approvals) {
     const col = startCol + i;
     const a = approvals[i];
     const dateStr = (a.signed_at || a.approved_at) ? formatShortDate(a.signed_at || a.approved_at) : '';
-    sheet.getRange(5, col).setValue(dateStr).setFontSize(7).setFontColor('#666666')
+    sheet.getRange(5, col).setValue(dateStr)
+      .setFontFamily(stampFont).setFontSize(8).setFontColor('#666666')
       .setHorizontalAlignment('center').setVerticalAlignment('middle');
   }
 
-  // ── 테두리 ──
+  // ── 테두리 (웹과 동일한 teal) ──
   sheet.getRange(1, startCol, STAMP_ROWS, stepCount)
-    .setBorder(true, true, true, true, true, true, '#006666', SpreadsheetApp.BorderStyle.SOLID);
+    .setBorder(true, true, true, true, true, true, '#8ababa', SpreadsheetApp.BorderStyle.SOLID);
 
   // ── 메모(Threaded comment 포함) 전체 삭제 → 2페이지 원인 차단 ──
   try { sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).clearNote(); } catch(e) {}
@@ -1324,16 +1336,19 @@ function buildPdfBlobWithDocStamp(fileId, stampApprovals, fileName, root) {
     sheet.setRowHeight(5, 31);   // 이름/직책
     sheet.setRowHeight(6, 17);   // 날짜
 
-    // ── 4. 결재란 (행 2~6, 열 2~) ──
+    // ── 4. 결재란 (행 2~6, 열 2~) — 웹 화면과 동일한 폰트/서식 ──
+    var stampFont = 'Noto Sans KR'; // 웹과 유사한 한국어 폰트
+
     for (var i = 0; i < stepCount; i++) {
       var col = 2 + i;
       var a = stampApprovals[i];
 
-      // 행2: 단계명
+      // 행2: 단계명 (teal 배경)
       sheet.getRange(2, col).setValue(a.step_name || '결재')
-        .setFontSize(8).setFontWeight('bold')
+        .setFontFamily(stampFont).setFontSize(9).setFontWeight('bold')
+        .setFontColor('#004d4d')
         .setHorizontalAlignment('center').setVerticalAlignment('middle')
-        .setBackground('#e0f2f2');
+        .setBackground('#dff0f0');
 
       // 행3-4: 서명 (병합)
       sheet.getRange(3, col, 2, 1).merge()
@@ -1345,33 +1360,39 @@ function buildPdfBlobWithDocStamp(fileId, stampApprovals, fileName, root) {
         if (a.signature_file_id) {
           try {
             var sf = DriveApp.getFileById(a.signature_file_id);
-            sheet.insertImage(sf.getBlob().setContentType(sf.getMimeType() || 'image/png'), col, 3)
-              .setWidth(66).setHeight(50);
+            var sigImg2 = sheet.insertImage(sf.getBlob().setContentType(sf.getMimeType() || 'image/png'), col, 3);
+            sigImg2.setWidth(66).setHeight(50);
+            sigImg2.setAnchorCellXOffset(10); // (87-66)/2 = 가운데
+            sigImg2.setAnchorCellYOffset(6);  // (62-50)/2 = 가운데
             sigOk = true;
           } catch(e) { Logger.log('PDF 서명 삽입 실패: ' + e.message); }
         }
         if (!sigOk) {
           sheet.getRange(3, col).setValue(a.approver_name || '')
-            .setFontSize(9).setFontWeight('bold');
+            .setFontFamily(stampFont).setFontSize(10).setFontWeight('bold')
+            .setFontColor('#006666');
         }
       }
 
-      // 행5: 이름+직책
+      // 행5: 부서 + 이름 직책 (2줄, 웹 화면과 동일)
+      var deptStr = a.approver_dept || '';
       var nameStr = [a.approver_name, a.approver_position].filter(Boolean).join(' ');
-      sheet.getRange(5, col).setValue(nameStr)
-        .setFontSize(7).setHorizontalAlignment('center').setVerticalAlignment('middle')
-        .setWrap(false);
+      var cellText = deptStr ? deptStr + '\n' + nameStr : nameStr;
+      sheet.getRange(5, col).setValue(cellText)
+        .setFontFamily(stampFont).setFontSize(8)
+        .setHorizontalAlignment('center').setVerticalAlignment('middle')
+        .setWrap(true);
 
       // 행6: 날짜
       var dateStr = (a.signed_at || a.approved_at) ? formatShortDate(a.signed_at || a.approved_at) : '';
       sheet.getRange(6, col).setValue(dateStr)
-        .setFontSize(7).setFontColor('#666666')
+        .setFontFamily(stampFont).setFontSize(8).setFontColor('#666666')
         .setHorizontalAlignment('center').setVerticalAlignment('middle');
     }
 
-    // 결재란 테두리 (행2~6, 열2~)
+    // 결재란 테두리 (웹과 동일한 teal 색상)
     sheet.getRange(2, 2, 5, stepCount)
-      .setBorder(true, true, true, true, true, true, '#006666', SpreadsheetApp.BorderStyle.SOLID);
+      .setBorder(true, true, true, true, true, true, '#8ababa', SpreadsheetApp.BorderStyle.SOLID);
 
     // ── 5. PDF 이미지 삽입 (행7 앵커, 원본 크기 유지) ──
     var stampH = topMarginPx + 22 + 31 + 31 + 31 + 17; // =170px (여백38+결재란132)
