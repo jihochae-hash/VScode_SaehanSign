@@ -66,7 +66,10 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 .top-bar { background:#fff; border-bottom:2px solid var(--primary-tint); padding:10px 24px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
 .top-bar h4 { font-size:16px; font-weight:700; margin:0; color:var(--primary-dark); font-family:"Montserrat",sans-serif; }
 .top-bar .company-tag { font-size:11px; color:var(--primary); background:var(--primary-tint); padding:3px 10px; border-radius:20px; font-weight:600; }
-#syncStatusBar { display:none; align-items:center; gap:6px; font-size:12px; color:#d97706; background:#fef3c7; padding:4px 12px; border-radius:20px; font-weight:600; border:1px solid #fde68a; }
+#syncStatusBar { display:none; align-items:center; font-size:12px; color:#d97706; background:#fef3c7; padding:5px 14px; border-radius:20px; font-weight:600; border:1px solid #fde68a; position:relative; overflow:hidden; }
+#syncStatusBar .sync-bar-bg { position:absolute; left:0; top:0; bottom:0; width:0; background:linear-gradient(90deg,#fde68a,#fbbf24); border-radius:20px; transition:width 0.3s ease; }
+#syncStatusBar .sync-content { position:relative; z-index:1; display:flex; align-items:center; gap:6px; }
+@keyframes syncSpin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
 .comment-item { padding:12px 16px; border-bottom:1px solid #eef8f8; }
 .comment-item:last-child { border-bottom:none; }
 .page-content { padding:20px 24px; }
@@ -279,7 +282,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
         <span class="company-tag d-none d-md-inline ms-2">SaehanSign</span>
       </div>
       <div class="d-flex align-items-center gap-2">
-        <span id="syncStatusBar"><span class="spinner-border spinner-border-sm"></span>동기화 중...</span>
+        <span id="syncStatusBar"><span class="sync-bar-bg" id="syncBarBg"></span><span class="sync-content"><i class="bi bi-arrow-repeat" style="animation:syncSpin 1.5s linear infinite"></i><span>동기화 중... <small style="font-weight:400;opacity:.8">다른 페이지로 이동 가능</small></span></span></span>
         <button class="btn btn-success" onclick="refreshCurrentPage()" title="새로고침" style="font-size:13px;padding:5px 14px;line-height:1"><i class="bi bi-arrow-clockwise me-1"></i>새로고침</button>
         <div class="dropdown">
           <button class="btn btn-sm btn-light position-relative" data-bs-toggle="dropdown" onclick="loadNotifications()">
@@ -361,9 +364,15 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           <div class="card-header"><i class="bi bi-file-earmark-plus me-2"></i>새 문서 작성</div>
           <div class="card-body">
             <div class="row g-3 mb-4">
+              <div class="col-md-4">
+                <label class="form-label fw-semibold">문서 종류 <span class="text-danger">*</span></label>
+                <select class="form-select" id="newDocCategory" onchange="updateAutoDocTitle()">
+                  <option value="성적서">완제품 시험 성적서</option>
+                </select>
+              </div>
               <div class="col-md-5">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label class="form-label fw-semibold mb-0">제품명 <span class="text-danger">*</span></label>
+                  <label class="form-label fw-semibold mb-0">제품명 <span id="productNameRequired" class="text-danger">*</span></label>
                   <div class="form-check form-switch mb-0">
                     <input class="form-check-input" type="checkbox" id="manualTitleMode" onchange="toggleManualTitleMode(this.checked)">
                     <label class="form-check-label" style="font-size:11px;color:#5a7a7a" for="manualTitleMode">문서제목 직접입력</label>
@@ -383,12 +392,6 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
                 </div>
                 <input type="hidden" id="selectedProductCode">
               </div>
-              <div class="col-md-4">
-                <label class="form-label fw-semibold">문서 종류 <span class="text-danger">*</span></label>
-                <select class="form-select" id="newDocCategory" onchange="updateAutoDocTitle()">
-                  <option value="성적서">완제품 시험 성적서</option>
-                </select>
-              </div>
               <div class="col-md-3">
                 <label class="form-label fw-semibold">자동 문서제목</label>
                 <div class="form-control bg-light" id="autoDocTitlePreview" style="font-size:12px;color:#5a7a7a;min-height:38px;overflow:hidden;text-overflow:ellipsis">제품명 선택 시 자동 생성</div>
@@ -396,14 +399,12 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             </div>
             <input type="hidden" id="newDocSavePath">
 
-            <!-- 템플릿 불러오기 제거됨 -->
-
             <div class="mb-4">
-              <label class="form-label fw-semibold">문서 파일 (Excel 또는 PDF) <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold">문서 파일 (Excel 또는 PDF — 여러 파일 동시 업로드 가능) <span class="text-danger">*</span></label>
               <div class="drop-zone" id="docDropZone">
                 <i class="bi bi-file-earmark-arrow-up"></i>
-                <p>엑셀(.xlsx) 또는 PDF 파일을 드래그하여 놓거나 클릭하세요</p>
-                <input type="file" id="docFileInput" accept=".xlsx,.xls,.pdf" style="display:none">
+                <p>엑셀(.xlsx) 또는 PDF 파일을 드래그하여 놓거나 클릭하세요<br><small class="text-muted">여러 파일을 한번에 드래그하면 일괄 결재 요청됩니다</small></p>
+                <input type="file" id="docFileInput" accept=".xlsx,.xls,.pdf" multiple style="display:none">
               </div>
               <div class="mt-2 p-2 rounded" style="background:#fff8e1;border:1px solid #ffe082;font-size:11px">
                 <i class="bi bi-info-circle text-warning me-1"></i><strong>PDF 업로드 안내:</strong> 결재 승인 시 우측 상단에 결재란이 삽입되며, 원본 하단 약 <strong>15%</strong>가 잘릴 수 있습니다. PDF 원본 문서의 <strong>하단 여백을 충분히(4~5cm 이상)</strong> 확보해 주세요.
@@ -411,6 +412,11 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
               <div id="docFileInfo" class="mt-2" style="display:none">
                 <span class="badge bg-success"><i class="bi bi-check me-1"></i><span id="docFileName"></span></span>
                 <button class="btn btn-sm btn-link text-danger" onclick="clearDocFile()">제거</button>
+              </div>
+              <div id="multiFileList" class="mt-2" style="display:none">
+                <small class="text-muted mb-1 d-block"><i class="bi bi-files me-1"></i>업로드 파일 목록 (<span id="multiFileCount">0</span>건) — 파일명에서 제품명 자동 추출</small>
+                <div id="multiFileItems" class="list-group list-group-flush" style="font-size:12px;max-height:200px;overflow-y:auto"></div>
+                <button class="btn btn-sm btn-link text-danger mt-1" onclick="clearMultiFiles()"><i class="bi bi-x-circle me-1"></i>전체 제거</button>
               </div>
             </div>
 
@@ -617,7 +623,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
               <div class="col-md-6">
                 <label class="form-label fw-semibold">PDF 저장 경로 (기본)</label>
                 <input type="text" class="form-control" id="settingSavePath" placeholder="승인문서/{year}/{month}">
-                <small class="text-muted">변수: {year}, {month} · 문서 종류별 경로는 아래에서 설정</small>
+                <small class="text-muted">변수: {year}, {month}(03), {month_kr}(3월) · 문서 종류별 경로는 아래에서 설정</small>
               </div>
             </div>
             <button class="btn btn-primary mt-3" onclick="saveSettings()"><i class="bi bi-check me-1"></i>설정 저장</button>
@@ -645,7 +651,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
         <div class="card mb-4">
           <div class="card-header"><i class="bi bi-folder2 me-2"></i>문서 종류별 PDF 저장 경로</div>
           <div class="card-body">
-            <p class="text-muted mb-3" style="font-size:12px">승인된 문서가 저장될 구글 드라이브 폴더 경로를 문서 종류별로 설정합니다.<br>기본 형식: <code>승인문서/{year}/{month}/문서종류</code> · 변수: {year}, {month}, {doc_type}<br>
+            <p class="text-muted mb-3" style="font-size:12px">승인된 문서가 저장될 구글 드라이브 폴더 경로를 문서 종류별로 설정합니다.<br>기본 형식: <code>승인문서/{year}/{month}/문서종류</code> · 변수: {year}, {month}(03), {month_kr}(3월), {doc_type}<br>
             <i class="bi bi-info-circle"></i> 로컬 PC 저장은 <a href="https://www.google.com/intl/ko/drive/download/" target="_blank">구글 드라이브 데스크톱</a> 앱으로 자동 동기화 가능합니다.</p>
             <div id="docTypePathList" class="mb-3"></div>
             <button class="btn btn-sm btn-primary" onclick="saveDocTypePaths()"><i class="bi bi-check me-1"></i>경로 저장</button>
@@ -824,6 +830,7 @@ let currentDocData = null;
 let currentPage = 'dashboard';
 let previousPage = 'dashboard';
 let currentDocFile = null;
+let multiDocFiles = []; // 다중 파일 업로드용
 let uploadedSignatureData = null;
 let tplFileData = null;
 let myDocsCache = [];
@@ -859,18 +866,44 @@ function lsDel(key) {
 // 동기화 관리 (비동기 사후 동기화 + 이탈 방지)
 // ============================================================
 let _syncCount = 0;
+let _syncBarTimer = null;
+let _syncBarPct = 0;
 
 function startSync() {
   _syncCount++;
   const el = document.getElementById('syncStatusBar');
+  const bar = document.getElementById('syncBarBg');
   if (el) el.style.display = 'inline-flex';
+  // 바 시작: 천천히 90%까지 채움 (완료될 때까지 90%에서 대기)
+  if (!_syncBarTimer) {
+    _syncBarPct = 0;
+    if (bar) bar.style.width = '0%';
+    _syncBarTimer = setInterval(() => {
+      if (_syncBarPct < 90) {
+        _syncBarPct += 1.5; // 60 steps × 200ms = ~12초에 90%
+        if (_syncBarPct > 90) _syncBarPct = 90;
+        if (bar) bar.style.width = _syncBarPct + '%';
+      }
+    }, 200);
+  }
 }
 
 function endSync() {
   _syncCount = Math.max(0, _syncCount - 1);
   if (_syncCount === 0) {
     const el = document.getElementById('syncStatusBar');
-    if (el) el.style.display = 'none';
+    const bar = document.getElementById('syncBarBg');
+    if (_syncBarTimer) { clearInterval(_syncBarTimer); _syncBarTimer = null; }
+    // 100%로 채우고 잠시 후 숨기기
+    _syncBarPct = 100;
+    if (bar) bar.style.width = '100%';
+    setTimeout(() => {
+      if (_syncCount === 0) {
+        if (el) el.style.display = 'none';
+        if (bar) bar.style.width = '0%';
+        _syncBarPct = 0;
+      }
+    }, 600);
   }
 }
 
@@ -1267,13 +1300,16 @@ function initDocCreate() {
   document.getElementById('newDocSavePath').value = '';
   document.getElementById('docFileInfo').style.display = 'none';
   currentDocFile = null;
+  multiDocFiles = [];
+  var mfl = document.getElementById('multiFileList');
+  if (mfl) mfl.style.display = 'none';
+  var reqMark = document.getElementById('productNameRequired');
+  if (reqMark) reqMark.style.display = '';
   document.getElementById('approvalStepsCreate').innerHTML = '';
   // 문서 종류 select 동적 갱신
   populateCategorySelect('newDocCategory');
   // 기본 결재선 자동 불러오기
   loadDefaultApprovalChain();
-  // 템플릿 목록 로드
-  loadTemplateOptions();
 }
 
 // 파일 드래그앤드롭
@@ -1283,15 +1319,88 @@ function setupDropZone(zoneId, inputId, handler) {
   zone.addEventListener('click', () => input.click());
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files.length) handler(e.dataTransfer.files[0]); });
-  input.addEventListener('change', e => { if (e.target.files.length) handler(e.target.files[0]); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      // 문서 드롭존은 다중파일 지원
+      if (zoneId === 'docDropZone') { handleDocFiles(e.dataTransfer.files); }
+      else handler(e.dataTransfer.files[0]);
+    }
+  });
+  input.addEventListener('change', e => {
+    if (e.target.files.length) {
+      if (zoneId === 'docDropZone') { handleDocFiles(e.target.files); }
+      else handler(e.target.files[0]);
+    }
+  });
+}
+
+// 파일명에서 제품명 추출 (_로 구분된 항목 중 가장 긴 단어)
+function extractProductName(fileName) {
+  let name = fileName.replace(/\.(xlsx?|pdf)$/i, '');
+  // _ 또는 - 로 구분된 부분들
+  const parts = name.split(/[_]/).map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    // 가장 긴 항목 = 제품명일 가능성 높음
+    let longest = parts[0], longestLen = 0;
+    parts.forEach(p => { if (p.length > longestLen) { longestLen = p.length; longest = p; } });
+    return longest;
+  }
+  // _가 없으면 기존 방식 (문서번호 제거)
+  name = name.replace(/^[\d]+\s*[-]\s*/, '');
+  name = name.replace(/^[A-Z]{2,}\d+[-]\s*/, '');
+  return name.trim() || fileName.replace(/\.[^.]+$/, '');
+}
+
+function handleDocFiles(fileList) {
+  const validFiles = [];
+  for (let i = 0; i < fileList.length; i++) {
+    if (fileList[i].name.match(/\.(xlsx?|pdf)$/i)) validFiles.push(fileList[i]);
+  }
+  if (!validFiles.length) { showToast('엑셀 또는 PDF 파일만 업로드 가능합니다.', 'danger'); return; }
+  if (validFiles.length > 15) { showToast('한번에 최대 15개까지 업로드 가능합니다. (' + validFiles.length + '개 선택됨)', 'warning'); return; }
+
+  if (validFiles.length === 1) {
+    // 단일 파일: 기존 방식
+    handleDocFile(validFiles[0]);
+    return;
+  }
+
+  // 다중 파일
+  multiDocFiles = validFiles;
+  currentDocFile = null;
+  document.getElementById('docFileInfo').style.display = 'none';
+  document.getElementById('multiFileList').style.display = 'block';
+  document.getElementById('multiFileCount').textContent = validFiles.length;
+
+  const listEl = document.getElementById('multiFileItems');
+  listEl.innerHTML = validFiles.map((f, idx) => {
+    const prodName = extractProductName(f.name);
+    const ext = f.name.match(/\.pdf$/i) ? '<span class="badge bg-danger me-1">PDF</span>' : '<span class="badge bg-success me-1">Excel</span>';
+    return `<div class="list-group-item d-flex align-items-center gap-2 py-1 px-2">
+      <span style="flex-shrink:0">${ext}</span>
+      <span style="flex-shrink:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</span>
+      <span style="flex-shrink:0;color:#999">→</span>
+      <input type="text" class="form-control form-control-sm multi-prod-name" data-idx="${idx}" value="${esc(prodName)}" style="font-size:12px;padding:2px 6px;flex:1;min-width:100px" title="제품명 수정 가능">
+      <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeMultiFile(${idx})" title="제거"><i class="bi bi-x"></i></button>
+    </div>`;
+  }).join('');
+
+  // 다중파일 시 제품명 필수 해제
+  const reqMark = document.getElementById('productNameRequired');
+  if (reqMark) reqMark.style.display = 'none';
+  showToast(validFiles.length + '개 파일이 추가되었습니다. 문서 종류와 결재선을 설정 후 결재 요청하세요.', 'info');
 }
 
 function handleDocFile(file) {
   if (!file.name.match(/\.(xlsx?|pdf)$/i)) { showToast('엑셀 또는 PDF 파일만 업로드 가능합니다.', 'danger'); return; }
   currentDocFile = file;
+  multiDocFiles = [];
+  document.getElementById('multiFileList').style.display = 'none';
   document.getElementById('docFileName').textContent = file.name + ' (' + (file.size/1024).toFixed(0) + 'KB)';
   document.getElementById('docFileInfo').style.display = 'block';
+  const reqMark = document.getElementById('productNameRequired');
+  if (reqMark) reqMark.style.display = '';
   const cleanName = file.name.replace(/\.(xlsx?|pdf)$/i, '');
   const manualMode = document.getElementById('manualTitleMode');
   if (manualMode && manualMode.checked) {
@@ -1308,6 +1417,33 @@ function clearDocFile() {
   currentDocFile = null;
   document.getElementById('docFileInfo').style.display = 'none';
   document.getElementById('docFileInput').value = '';
+}
+
+function clearMultiFiles() {
+  multiDocFiles = [];
+  document.getElementById('multiFileList').style.display = 'none';
+  document.getElementById('docFileInput').value = '';
+  const reqMark = document.getElementById('productNameRequired');
+  if (reqMark) reqMark.style.display = '';
+}
+
+function removeMultiFile(idx) {
+  multiDocFiles.splice(idx, 1);
+  if (multiDocFiles.length <= 1) {
+    if (multiDocFiles.length === 1) { handleDocFile(multiDocFiles[0]); multiDocFiles = []; }
+    else clearMultiFiles();
+    return;
+  }
+  // 다시 렌더링
+  handleDocFiles(multiDocFiles);
+}
+
+// 다중파일 제출 시 사용자가 수정한 제품명 가져오기
+function getMultiFileProductNames() {
+  const inputs = document.querySelectorAll('.multi-prod-name');
+  const names = [];
+  inputs.forEach(inp => { names[parseInt(inp.dataset.idx)] = inp.value.trim(); });
+  return names;
 }
 
 // 결재 단계
@@ -1362,23 +1498,7 @@ async function loadDefaultApprovalChain() {
 }
 
 async function submitNewDocument() {
-  let title;
-  const manualMode = document.getElementById('manualTitleMode');
-  if (manualMode && manualMode.checked) {
-    title = document.getElementById('newDocTitle').value.trim();
-    if (!title) { showToast('문서 제목을 입력해주세요.', 'warning'); return; }
-  } else {
-    const bomVal = document.getElementById('bomSearchInput').value.trim();
-    if (!bomVal) { showToast('제품명을 입력하거나 BOM에서 선택해주세요.', 'warning'); return; }
-    const docTypeSel = document.getElementById('newDocCategory');
-    const docTypeLabel = docTypeSel.options[docTypeSel.selectedIndex] ? docTypeSel.options[docTypeSel.selectedIndex].text : '';
-    title = bomVal + (docTypeLabel ? ' - ' + docTypeLabel : '');
-  }
-  const category = document.getElementById('newDocCategory').value;
-  const productCode = (document.getElementById('selectedProductCode') || {}).value || '';
-  const savePath = (document.getElementById('newDocSavePath') || {}).value || '';
-  if (!currentDocFile) { showToast('파일을 업로드해주세요.', 'warning'); return; }
-
+  // 결재선 공통 검증
   const steps = [];
   document.querySelectorAll('#approvalStepsCreate .approval-step-row').forEach(row => {
     const sel = row.querySelector('.step-approver');
@@ -1389,7 +1509,69 @@ async function submitNewDocument() {
   });
   if (!steps.length) { showToast('결재자를 최소 1명 지정해주세요.', 'warning'); return; }
 
-  // 즉시 화면 전환 후 백그라운드 업로드 (사후 동기화)
+  const category = document.getElementById('newDocCategory').value;
+  const docTypeSel = document.getElementById('newDocCategory');
+  const docTypeLabel = docTypeSel.options[docTypeSel.selectedIndex] ? docTypeSel.options[docTypeSel.selectedIndex].text : '';
+  const productCode = (document.getElementById('selectedProductCode') || {}).value || '';
+  const savePath = (document.getElementById('newDocSavePath') || {}).value || '';
+
+  // ── 다중 파일 모드 (최대 15건, 3건씩 병렬) ──
+  if (multiDocFiles.length > 1) {
+    if (multiDocFiles.length > 15) { showToast('한번에 최대 15개까지 업로드 가능합니다.', 'warning'); return; }
+    // 사용자가 수정한 제품명 가져오기
+    const editedNames = getMultiFileProductNames();
+    navigateTo('my-docs');
+    const totalFiles = multiDocFiles.length;
+    showToast(totalFiles + '건 문서 업로드 시작 (3건씩 병렬 처리)', 'info');
+    startSync();
+    let successCount = 0, failCount = 0;
+    const BATCH_SIZE = 3;
+
+    // 1건 업로드 함수
+    async function uploadOneDoc(file, fileIdx) {
+      const prodName = editedNames[fileIdx] || extractProductName(file.name);
+      const title = prodName + (docTypeLabel ? ' - ' + docTypeLabel : '');
+      const fileData = await readFileAsBase64(file);
+      const result = await api('doc_create', { title, category, product_code: '', save_path: savePath, file_data: fileData, file_name: file.name, approval_steps: JSON.stringify(steps), include_author_signature: AUTHOR_SIGN_FIRST });
+      if (!result.success) throw new Error(result.error);
+      await api('approval_submit', { doc_id: result.id });
+    }
+
+    // 3건씩 배치 처리 + 진행률 바 연동
+    for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
+      const batch = multiDocFiles.slice(i, i + BATCH_SIZE);
+      const batchStartIdx = i;
+      const results = await Promise.allSettled(batch.map((f, bi) => uploadOneDoc(f, batchStartIdx + bi)));
+      results.forEach(r => { if (r.status === 'fulfilled') successCount++; else failCount++; });
+      // 진행률 바 업데이트 (90% 범위 내에서)
+      const progress = Math.min(90, Math.round(((i + batch.length) / totalFiles) * 90));
+      const bar = document.getElementById('syncBarBg');
+      if (bar) bar.style.width = progress + '%';
+      _syncBarPct = progress;
+    }
+
+    endSync();
+    lsDel('my_docs'); lsDel('all_docs'); lsDel('pending_approval'); lsDel('dashboard');
+    multiDocFiles = [];
+    if (failCount > 0) showToast(successCount + '건 완료, ' + failCount + '건 실패', 'warning');
+    else showToast(successCount + '건 문서 등록 및 결재 요청 완료!');
+    if (currentPage === 'my-docs') loadMyDocs();
+    return;
+  }
+
+  // ── 단일 파일 모드 ──
+  let title;
+  const manualMode = document.getElementById('manualTitleMode');
+  if (manualMode && manualMode.checked) {
+    title = document.getElementById('newDocTitle').value.trim();
+    if (!title) { showToast('문서 제목을 입력해주세요.', 'warning'); return; }
+  } else {
+    const bomVal = document.getElementById('bomSearchInput').value.trim();
+    if (!bomVal) { showToast('제품명을 입력하거나 BOM에서 선택해주세요.', 'warning'); return; }
+    title = bomVal + (docTypeLabel ? ' - ' + docTypeLabel : '');
+  }
+  if (!currentDocFile) { showToast('파일을 업로드해주세요.', 'warning'); return; }
+
   navigateTo('my-docs');
   showToast('문서 업로드 중... 완료되면 알림이 표시됩니다.', 'info');
   startSync();

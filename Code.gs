@@ -962,6 +962,7 @@ function autoSavePdf(docId, docRowIdx, docSh) {
   let folderPath = pathTemplate
     .replace('{year}', String(now.getFullYear()))
     .replace('{month}', ('0' + (now.getMonth()+1)).slice(-2))
+    .replace('{month_kr}', (now.getMonth()+1) + '월')
     .replace('{doc_type}', docCategory);
   if (customPath) folderPath = customPath;
 
@@ -989,32 +990,31 @@ function autoSavePdf(docId, docRowIdx, docSh) {
   const hasAuthorStep = approvals.length > 0 && approvals[0].step_name === '작성';
   const stampApprovals = hasAuthorStep ? approvals : [creatorInfo].concat(approvals);
 
-  if (origMime === 'application/pdf') {
-    // PDF 원본: Docs 변환 방식으로 결재란 삽입 (실패 시 에러 전파)
-    const pdfResult = buildPdfBlobWithDocStamp(fileId, stampApprovals, fileName, root);
-    savedFile = targetFolder.createFile(pdfResult.blob);
-  } else {
-    // Excel → Google Sheets 변환 → 결재란 삽입 → PDF 변환
-    let tempFileId = null;
-    try {
-      // multipart upload로 Excel → Sheets 변환 (Advanced Drive Service 불필요)
-      tempFileId = convertFileToSheets(fileId, 'temp_stamp_' + docId, root.getId());
-      Utilities.sleep(2000); // 변환 완료 대기
-
-      const ss = SpreadsheetApp.openById(tempFileId);
-      const sheet = ss.getSheets()[0];
-
-      // ── 결재란 삽입 (우측 상단) ──
-      const printRange = embedApprovalStamp(sheet, stampApprovals);
+  // Excel/PDF 모두 동일한 이미지화+결재란 합성 방식
+  let sourceFileId = fileId;
+  let tempConvertId = null;
+  try {
+    if (origMime !== 'application/pdf') {
+      // Excel → Sheets → 스탬프 없는 깨끗한 PDF 생성 → Drive 임시 저장
+      tempConvertId = convertFileToSheets(fileId, 'temp_clean_' + docId, root.getId());
+      Utilities.sleep(2000);
+      const ss = SpreadsheetApp.openById(tempConvertId);
       SpreadsheetApp.flush();
-      Utilities.sleep(1500); // 이미지 삽입 완료 대기
-
-      // PDF 변환
-      const pdfBlob = exportSheetAsPdf(ss, fileName, printRange);
-      savedFile = targetFolder.createFile(pdfBlob);
-    } finally {
-      if (tempFileId) { try { DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e) {} }
+      const cleanPdf = exportSheetAsCleanPdf(ss, '_clean.pdf');
+      const tempPdfFile = root.createFile(cleanPdf);
+      sourceFileId = tempPdfFile.getId();
+      // Sheets 임시 파일 삭제 (PDF는 썸네일 생성 후 삭제)
+      try { DriveApp.getFileById(tempConvertId).setTrashed(true); } catch(e) {}
+      tempConvertId = null;
+      Utilities.sleep(3000); // 썸네일 생성 대기
     }
+    // PDF 이미지화 + 결재란 합성 (공통 로직)
+    const pdfResult = buildPdfBlobWithDocStamp(sourceFileId, stampApprovals, fileName, root);
+    savedFile = targetFolder.createFile(pdfResult.blob);
+  } finally {
+    if (tempConvertId) { try { DriveApp.getFileById(tempConvertId).setTrashed(true); } catch(e) {} }
+    // Excel에서 생성한 임시 PDF 삭제
+    if (sourceFileId !== fileId) { try { DriveApp.getFileById(sourceFileId).setTrashed(true); } catch(e) {} }
   }
 
   savedFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -1224,6 +1224,24 @@ function exportSheetAsPdf(ss, fileName, printRange) {
   if (response.getResponseCode() !== 200) {
     throw new Error('PDF export failed: ' + response.getResponseCode());
   }
+  return response.getBlob().setName(fileName);
+}
+
+// ========== Excel→이미지용 깨끗한 PDF 내보내기 (최소 여백, 가운데 정렬) ==========
+function exportSheetAsCleanPdf(ss, fileName) {
+  const sheetId = ss.getSheets()[0].getSheetId();
+  const url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export?' +
+    'format=pdf&size=A4&portrait=true&scale=4' +
+    '&sheetnames=false&gridlines=false&printtitle=false&pagenumbers=false&notes=false' +
+    '&top_margin=0.20&bottom_margin=0.20&left_margin=0.20&right_margin=0.20' +
+    '&horizontal_alignment=CENTER' +
+    '&gid=' + sheetId;
+  const token = ScriptApp.getOAuthToken();
+  const response = UrlFetchApp.fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) throw new Error('Clean PDF export failed');
   return response.getBlob().setName(fileName);
 }
 
@@ -1530,50 +1548,42 @@ function generatePdfWithStamp(data) {
   const hasAuthorStep = approvals.length > 0 && approvals[0].step_name === '작성';
   const stampApprovals = hasAuthorStep ? approvals : [creatorInfo].concat(approvals);
 
-  if (origMime === 'application/pdf') {
-    // PDF 원본: Docs 변환 방식으로 결재란 삽입
-    const docNumber = docSh.getRange(docRowIdx, 2).getValue();
-    const docTitle = docSh.getRange(docRowIdx, 3).getValue();
-    const pdfFileName = docNumber + '_' + docTitle + '.pdf';
-    const root2 = getDriveRootFolder();
-    const pdfResult = buildPdfBlobWithDocStamp(fileId, stampApprovals, pdfFileName, root2);
+  // Excel/PDF 모두 동일한 이미지화+결재란 합성 방식
+  const docNumber = docSh.getRange(docRowIdx, 2).getValue();
+  const docTitle = docSh.getRange(docRowIdx, 3).getValue();
+  const pdfFileName = docNumber + '_' + docTitle + '.pdf';
+  const root = getDriveRootFolder();
+  let sourceFileId = fileId;
+  let tempConvertId = null;
+  let tempPdfFileId = null;
+  try {
+    if (origMime !== 'application/pdf') {
+      // Excel → Sheets → 깨끗한 PDF 생성 → Drive 임시 저장
+      tempConvertId = convertFileToSheets(fileId, 'temp_dl_' + data.doc_id, root.getId());
+      Utilities.sleep(2000);
+      const ss = SpreadsheetApp.openById(tempConvertId);
+      SpreadsheetApp.flush();
+      const cleanPdf = exportSheetAsCleanPdf(ss, '_clean.pdf');
+      const tempPdfFile = root.createFile(cleanPdf);
+      tempPdfFileId = tempPdfFile.getId();
+      sourceFileId = tempPdfFileId;
+      try { DriveApp.getFileById(tempConvertId).setTrashed(true); } catch(e) {}
+      tempConvertId = null;
+      Utilities.sleep(3000); // 썸네일 생성 대기
+    }
+    const pdfResult = buildPdfBlobWithDocStamp(sourceFileId, stampApprovals, pdfFileName, root);
     return {
       success: true,
       pdf_base64: Utilities.base64Encode(pdfResult.blob.getBytes()),
       file_name: pdfFileName,
       clip_percent: pdfResult.clip_percent
     };
-  }
-
-  // Excel → Google Sheets 변환 → 스탬프 삽입 → PDF
-  const root = getDriveRootFolder();
-  let tempFileId = null;
-  try {
-    // multipart upload로 Excel → Sheets 변환 (Advanced Drive Service 불필요)
-    tempFileId = convertFileToSheets(fileId, 'temp_dl_' + data.doc_id, root.getId());
-    Utilities.sleep(2000); // 변환 완료 대기
-
-    const ss = SpreadsheetApp.openById(tempFileId);
-    const sheet = ss.getSheets()[0];
-    let printRange = null;
-    if (stampApprovals.length > 0) printRange = embedApprovalStamp(sheet, stampApprovals);
-    SpreadsheetApp.flush();
-    Utilities.sleep(1500); // 이미지 삽입 완료 대기
-
-    const docNumber = docSh.getRange(docRowIdx, 2).getValue();
-    const docTitle = docSh.getRange(docRowIdx, 3).getValue();
-    const pdfFileName = docNumber + '_' + docTitle + '.pdf';
-    const pdfBlob = exportSheetAsPdf(ss, pdfFileName, printRange);
-    return {
-      success: true,
-      pdf_base64: Utilities.base64Encode(pdfBlob.getBytes()),
-      file_name: pdfFileName
-    };
   } catch(e) {
     Logger.log('PDF 생성 실패: ' + e.message);
     return { success: false, error: 'PDF 생성 실패: ' + e.message };
   } finally {
-    if (tempFileId) { try { DriveApp.getFileById(tempFileId).setTrashed(true); } catch(e) {} }
+    if (tempConvertId) { try { DriveApp.getFileById(tempConvertId).setTrashed(true); } catch(e) {} }
+    if (tempPdfFileId) { try { DriveApp.getFileById(tempPdfFileId).setTrashed(true); } catch(e) {} }
   }
 }
 
@@ -1593,7 +1603,8 @@ function savePdfToDrive(data) {
   const now = new Date();
   let folderPath = pathTemplate
     .replace('{year}', now.getFullYear())
-    .replace('{month}', ('0' + (now.getMonth()+1)).slice(-2));
+    .replace('{month}', ('0' + (now.getMonth()+1)).slice(-2))
+    .replace('{month_kr}', (now.getMonth()+1) + '월');
   if (savePath) folderPath = savePath;
 
   const targetFolder = createFolderPath(root, folderPath);
