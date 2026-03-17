@@ -227,12 +227,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
         <button type="submit" class="btn btn-primary w-100 mt-1"><i class="bi bi-box-arrow-in-right me-2"></i>로그인</button>
         <div id="loginError" class="text-danger text-center mt-3" style="display:none"></div>
       </form>
-      <hr class="login-divider" id="apiSectionDivider" style="display:none">
-      <div class="api-section" id="apiSection" style="display:none">
-        <small><i class="bi bi-gear me-1"></i>API URL 설정 (수동)</small>
-        <input type="text" class="form-control form-control-sm" id="apiUrlInput" placeholder="Google Apps Script 웹앱 URL">
-        <button class="btn btn-sm btn-outline-secondary mt-2 w-100" onclick="saveApiUrl()">저장</button>
-      </div>
+      <!-- Firebase 기반 — API URL 설정 불필요 -->
     </div>
   </div>
 </div>
@@ -400,21 +395,32 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <input type="hidden" id="newDocSavePath">
 
             <div class="mb-4">
-              <label class="form-label fw-semibold">문서 파일 (Excel 또는 PDF — 여러 파일 동시 업로드 가능) <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold">문서 파일 (PDF — 여러 파일 동시 업로드 가능) <span class="text-danger">*</span></label>
+              <div class="mb-2 d-flex align-items-center gap-3" style="font-size:12px">
+                <span class="text-muted fw-semibold">제품명 추출 방식:</span>
+                <div class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="radio" name="prodNameMode" id="prodNameModeFull" value="full" checked onchange="refreshMultiFileNames()">
+                  <label class="form-check-label" for="prodNameModeFull">파일명 전체 (확장자 제외)</label>
+                </div>
+                <div class="form-check form-check-inline mb-0">
+                  <input class="form-check-input" type="radio" name="prodNameMode" id="prodNameModeExtract" value="extract" onchange="refreshMultiFileNames()">
+                  <label class="form-check-label" for="prodNameModeExtract">자동 추출 (_구분 중 가장 긴 항목)</label>
+                </div>
+              </div>
               <div class="drop-zone" id="docDropZone">
                 <i class="bi bi-file-earmark-arrow-up"></i>
-                <p>엑셀(.xlsx) 또는 PDF 파일을 드래그하여 놓거나 클릭하세요<br><small class="text-muted">여러 파일을 한번에 드래그하면 일괄 결재 요청됩니다</small></p>
-                <input type="file" id="docFileInput" accept=".xlsx,.xls,.pdf" multiple style="display:none">
+                <p>PDF 파일을 드래그하여 놓거나 클릭하세요<br><small class="text-muted">여러 파일을 한번에 드래그하면 일괄 결재 요청됩니다</small></p>
+                <input type="file" id="docFileInput" accept=".pdf" multiple style="display:none">
               </div>
               <div class="mt-2 p-2 rounded" style="background:#fff8e1;border:1px solid #ffe082;font-size:11px">
-                <i class="bi bi-info-circle text-warning me-1"></i><strong>PDF 업로드 안내:</strong> 결재 승인 시 우측 상단에 결재란이 삽입되며, 원본 하단 약 <strong>15%</strong>가 잘릴 수 있습니다. PDF 원본 문서의 <strong>하단 여백을 충분히(4~5cm 이상)</strong> 확보해 주세요.
+                <i class="bi bi-info-circle text-warning me-1"></i><strong>안내:</strong> 결재 승인 시 우측 하단에 결재란이 자동 삽입됩니다.
               </div>
               <div id="docFileInfo" class="mt-2" style="display:none">
                 <span class="badge bg-success"><i class="bi bi-check me-1"></i><span id="docFileName"></span></span>
                 <button class="btn btn-sm btn-link text-danger" onclick="clearDocFile()">제거</button>
               </div>
               <div id="multiFileList" class="mt-2" style="display:none">
-                <small class="text-muted mb-1 d-block"><i class="bi bi-files me-1"></i>업로드 파일 목록 (<span id="multiFileCount">0</span>건) — 파일명에서 제품명 자동 추출</small>
+                <small class="text-muted mb-1 d-block"><i class="bi bi-files me-1"></i>업로드 파일 목록 (<span id="multiFileCount">0</span>건)</small>
                 <div id="multiFileItems" class="list-group list-group-flush" style="font-size:12px;max-height:200px;overflow-y:auto"></div>
                 <button class="btn btn-sm btn-link text-danger mt-1" onclick="clearMultiFiles()"><i class="bi bi-x-circle me-1"></i>전체 제거</button>
               </div>
@@ -811,18 +817,37 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Firebase SDK (compat 모드) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<!-- pdf-lib (브라우저 PDF 편집) + html2canvas (결재란 이미지 렌더링) -->
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
+// ============================================================
+// Firebase 초기화
+// ============================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyAwGgzGLz6ycZynjptklImFYvN_c5uHpuE",
+  authDomain: "saehansign.firebaseapp.com",
+  projectId: "saehansign",
+  storageBucket: "saehansign.firebasestorage.app",
+  messagingSenderId: "29765960226",
+  appId: "1:29765960226:web:f88f33bdffc0489bdd407b"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
+const storage = firebase.storage();
+
 // ============================================================
 // 전역
 // ============================================================
-// GAS doGet()으로 서빙 시 실제 URL로 자동 치환됨
-// 로컬 파일로 열 때는 localStorage 또는 아래 하드코딩 URL 사용
-const _GAS_TEMPLATE_VAL = '<?!= deployedUrl ?>';
-const _HARDCODED_URL = 'https://script.google.com/macros/s/AKfycbyWIoGVpWGCLmTDzSsjrTtw8nZA_6aB0yIE4tFayTckXKmQ0fb-u17CmPgxJycv0Gqxzw/exec'; // ← GAS 배포 URL을 여기에 입력하면 어느 PC에서나 자동 연결
-let API_URL = (_GAS_TEMPLATE_VAL.startsWith('<?') ? '' : _GAS_TEMPLATE_VAL)
-              || localStorage.getItem('qa_api_url')
-              || _HARDCODED_URL;
-let SESSION_TOKEN = '';  // 항상 명시적 로그인 필요 (localStorage 자동복원 안함)
+// Firebase 기반 — GAS API URL 불필요
+let API_URL = 'FIREBASE'; // 호환용 (빈 문자열이면 에러 발생하는 코드 방지)
+let SESSION_TOKEN = '';  // Firebase Auth로 대체되지만 호환용 유지
 let CURRENT_USER = null;
 let ALL_USERS = [];
 let currentDocId = null;
@@ -916,39 +941,868 @@ window.addEventListener('beforeunload', function(e) {
   }
 });
 
+// ============================================================
+// Firebase Firestore API 라우터
+// 기존 api(action, data) 호출을 그대로 유지하면서 내부를 Firestore로 교체
+// ============================================================
 async function api(action, data = {}) {
-  if (!API_URL) { showToast('API URL을 설정해주세요.', 'danger'); throw new Error('No API URL'); }
-  data.action = action;
-  data.token = SESSION_TOKEN;
   try {
-    const resp = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(data),
-      redirect: 'follow'
-    });
-    const result = await resp.json();
-    if (!result.success && result.error && result.error.includes('세션')) {
-      SESSION_TOKEN = '';
-      localStorage.removeItem('qa_session_token');
-      showLogin();
-      throw new Error(result.error);
+    switch(action) {
+      case 'login': return await fb_login(data);
+      case 'logout': return await fb_logout(data);
+      case 'validate_session': return await fb_validateSession(data);
+      case 'change_password': return await fb_changePassword(data);
+      case 'user_list': return await fb_userList(data);
+      case 'user_add': return await fb_userAdd(data);
+      case 'user_update': return await fb_userUpdate(data);
+      case 'user_delete': return await fb_userDelete(data);
+      case 'user_signature_upload': return await fb_signatureUpload(data);
+      case 'doc_list': return await fb_docList(data);
+      case 'doc_create': return await fb_docCreate(data);
+      case 'doc_detail': return await fb_docDetail(data);
+      case 'doc_delete': return await fb_docDelete(data);
+      case 'doc_batch_delete': return await fb_docBatchDelete(data);
+      case 'doc_file': return await fb_docFile(data);
+      case 'doc_search': return await fb_docSearch(data);
+      case 'approval_submit': return await fb_approvalSubmit(data);
+      case 'approval_approve': return await fb_approvalApprove(data);
+      case 'approval_reject': return await fb_approvalReject(data);
+      case 'approval_history': return await fb_approvalHistory(data);
+      case 'save_pdf': return await fb_savePdf(data);
+      case 'regen_pdf': return await fb_regenPdf(data);
+      case 'generate_pdf': return await fb_generatePdf(data);
+      case 'notifications': return await fb_notifications(data);
+      case 'notification_read': return await fb_notificationRead(data);
+      case 'notification_delete': return await fb_notificationDelete(data);
+      case 'settings_get': return await fb_settingsGet(data);
+      case 'settings_update': return await fb_settingsUpdate(data);
+      case 'dashboard': return await fb_dashboard(data);
+      case 'get_signature_image': return await fb_getSignatureImage(data);
+      case 'login_history': return await fb_loginHistory(data);
+      case 'login_history_delete': return await fb_loginHistoryDelete(data);
+      case 'bom_qa_upload': return await fb_bomQaUpload(data);
+      case 'bom_qa_search': return await fb_bomQaSearch(data);
+      default: return { success: false, error: '알 수 없는 action: ' + action };
     }
-    return result;
   } catch(ex) {
-    if (ex.message.includes('세션')) throw ex;
-    // GAS redirect 처리: POST → GET redirect
+    console.error('API error [' + action + ']:', ex);
+    return { success: false, error: ex.message };
+  }
+}
+
+// ============================================================
+// Firebase 유틸리티
+// ============================================================
+function fb_generateId() {
+  return db.collection('_tmp').doc().id; // Firestore 자동 ID 생성
+}
+function fb_now() { return new Date().toISOString(); }
+
+// Firebase Storage에 파일 업로드 → download URL 반환
+async function fb_uploadFile(path, base64Data, fileName) {
+  const mimeMap = { xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xls:'application/vnd.ms-excel', pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg' };
+  const ext = (fileName||'').split('.').pop().toLowerCase();
+  const mime = mimeMap[ext] || 'application/octet-stream';
+  const byteChars = atob(base64Data);
+  const byteNums = new Array(byteChars.length);
+  for(let i=0;i<byteChars.length;i++) byteNums[i]=byteChars.charCodeAt(i);
+  const blob = new Blob([new Uint8Array(byteNums)], {type:mime});
+  const ref = storage.ref(path + '/' + fileName);
+  await ref.put(blob);
+  return await ref.getDownloadURL();
+}
+
+// Firebase Storage에서 파일 base64로 다운로드
+async function fb_downloadFileBase64(url) {
+  const resp = await fetch(url);
+  const blob = await resp.blob();
+  return new Promise((resolve,reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// 문서번호 자동생성 (QA + 년월 + 5자리 순번)
+async function fb_nextDocNumber() {
+  const now = new Date();
+  const prefix = 'QA' + String(now.getFullYear()).slice(2) + ('0'+(now.getMonth()+1)).slice(-2);
+  const snap = await db.collection('documents').where('doc_number','>=',prefix).where('doc_number','<=',prefix+'\uf8ff').orderBy('doc_number','desc').limit(1).get();
+  let seq = 1;
+  if(!snap.empty) {
+    const lastNum = snap.docs[0].data().doc_number;
+    const lastSeq = parseInt(lastNum.slice(prefix.length)) || 0;
+    seq = lastSeq + 1;
+  }
+  return prefix + String(seq).padStart(5,'0');
+}
+
+// ============================================================
+// 인증 (Firebase Auth + Firestore users)
+// ============================================================
+async function fb_login(data) {
+  try {
+    // Firebase Auth 이메일 형식: username@saehansign.local
+    const email = data.username + '@saehansign.local';
+    const cred = await auth.signInWithEmailAndPassword(email, data.password);
+    const uid = cred.user.uid;
+    const userDoc = await db.collection('users').doc(uid).get();
+    if(!userDoc.exists) return { success:false, error:'사용자 정보가 없습니다.' };
+    const u = userDoc.data();
+    if(u.status === 'inactive') return { success:false, error:'비활성 계정입니다.' };
+    // 로그인 이력 기록
+    await db.collection('login_history').add({ user_id:uid, username:data.username, name:u.name||'', login_at:fb_now(), ip:'' });
+    return { success:true, token:uid, user:{ id:uid, username:data.username, name:u.name, role:u.role, department:u.department, position:u.position } };
+  } catch(ex) {
+    if(ex.code==='auth/user-not-found'||ex.code==='auth/wrong-password'||ex.code==='auth/invalid-credential') {
+      return { success:false, error:'아이디 또는 비밀번호가 일치하지 않습니다.' };
+    }
+    return { success:false, error:ex.message };
+  }
+}
+
+async function fb_logout() {
+  await auth.signOut();
+  return { success:true };
+}
+
+async function fb_validateSession() {
+  const user = auth.currentUser;
+  if(!user) return { success:false, error:'세션 만료' };
+  const doc = await db.collection('users').doc(user.uid).get();
+  if(!doc.exists) return { success:false, error:'사용자 정보 없음' };
+  const u = doc.data();
+  return { success:true, user:{ id:user.uid, username:u.username, name:u.name, role:u.role, department:u.department, position:u.position } };
+}
+
+async function fb_changePassword(data) {
+  const user = auth.currentUser;
+  if(!user) return { success:false, error:'로그인 필요' };
+  // 현재 비밀번호 확인 후 변경
+  const email = user.email;
+  try {
+    await auth.signInWithEmailAndPassword(email, data.current_password);
+    await user.updatePassword(data.new_password);
+    return { success:true };
+  } catch(ex) {
+    return { success:false, error:'현재 비밀번호가 일치하지 않습니다.' };
+  }
+}
+
+// ============================================================
+// 사용자 관리
+// ============================================================
+async function fb_userList() {
+  const snap = await db.collection('users').get();
+  const users = snap.docs
+    .map(d => { const u=d.data(); return { id:d.id, username:u.username, name:u.name, department:u.department, position:u.position, role:u.role, status:u.status||'active', email:u.email||'', signature_file_id:u.signature_url?'Y':'', created_at:u.created_at||'' }; })
+    .filter(u => u.status !== 'inactive');
+  return { success:true, users };
+}
+
+async function fb_userAdd(data) {
+  const email = data.username + '@saehansign.local';
+  const password = data.password || 'saehansign123';
+  try {
+    let newUid;
     try {
-      const resp = await fetch(API_URL + '?action=' + action, {
-        method: 'POST',
-        body: JSON.stringify(data),
-        redirect: 'follow'
+      // 새 사용자 Auth 계정 생성 (→ 자동으로 새 사용자로 로그인됨)
+      const cred = await auth.createUserWithEmailAndPassword(email, password);
+      newUid = cred.user.uid;
+    } catch(authErr) {
+      if(authErr.code === 'auth/email-already-in-use') {
+        // Auth에는 있지만 Firestore에 없을 수 있음 → 로그인해서 UID 획득
+        try {
+          const existCred = await auth.signInWithEmailAndPassword(email, password);
+          newUid = existCred.user.uid;
+          // Firestore에 이미 있는지 확인
+          const existDoc = await db.collection('users').doc(newUid).get();
+          if(existDoc.exists && existDoc.data().status !== 'inactive') {
+            return { success:false, error:'이미 존재하는 아이디입니다.' };
+          }
+          // Firestore에 없으면 아래에서 생성
+        } catch(loginErr) {
+          return { success:false, error:'이미 존재하는 아이디입니다. (비밀번호가 다를 수 있음)' };
+        }
+      } else {
+        return { success:false, error:authErr.message };
+      }
+    }
+
+    // Firestore에 사용자 정보 저장
+    await db.collection('users').doc(newUid).set({
+      username: data.username, name: data.name||'', department: data.department||'', position: data.position||'',
+      role: data.role||'user', status:'active', created_at:fb_now(), email:data.email||'', signature_url:''
+    });
+
+    return { success:true, need_relogin: true };
+  } catch(ex) {
+    return { success:false, error:ex.message };
+  }
+}
+
+async function fb_userUpdate(data) {
+  const updates = {};
+  if(data.name !== undefined) updates.name = data.name;
+  if(data.department !== undefined) updates.department = data.department;
+  if(data.position !== undefined) updates.position = data.position;
+  if(data.role !== undefined) updates.role = data.role;
+  if(data.email !== undefined) updates.email = data.email;
+  if(data.status !== undefined) updates.status = data.status;
+  await db.collection('users').doc(data.id).update(updates);
+  return { success:true };
+}
+
+async function fb_userDelete(data) {
+  try {
+    await db.collection('users').doc(data.id).update({ status:'inactive' });
+    return { success:true };
+  } catch(ex) {
+    console.error('사용자 삭제 실패:', ex);
+    return { success:false, error:ex.message };
+  }
+}
+
+async function fb_signatureUpload(data) {
+  const uid = data.target_id || auth.currentUser.uid;
+  const url = await fb_uploadFile('signatures/' + uid, data.image_data, 'sig_' + uid + '.png');
+  await db.collection('users').doc(uid).update({ signature_url: url });
+  return { success:true, file_id:url };
+}
+
+async function fb_getSignatureImage(data) {
+  const userDoc = await db.collection('users').doc(data.user_id).get();
+  if(!userDoc.exists) return { success:false, error:'사용자 없음' };
+  const u = userDoc.data();
+  if(!u.signature_url) return { success:true, signature_base64:'', mime:'image/png' };
+  const b64 = await fb_downloadFileBase64(u.signature_url);
+  return { success:true, signature_base64:b64, mime:'image/png' };
+}
+
+// ============================================================
+// 문서 관리
+// ============================================================
+async function fb_docList(data) {
+  const uid = auth.currentUser.uid;
+  let query = db.collection('documents').where('status','!=','deleted').orderBy('status').orderBy('created_at','desc');
+  const snap = await query.get();
+  let docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  // 내 문서함: 내가 작성했거나 결재자인 문서만
+  if(data.filter === 'my') {
+    const approvalSnap = await db.collection('approvals').where('approver_id','==',uid).get();
+    const myDocIds = new Set(approvalSnap.docs.map(d=>d.data().doc_id));
+    docs = docs.filter(d => d.creator_id === uid || myDocIds.has(d.id));
+  }
+  return { success:true, documents:docs };
+}
+
+async function fb_docCreate(data) {
+  const uid = auth.currentUser.uid;
+  const docNumber = await fb_nextDocNumber();
+  let fileUrl = '';
+  if(data.file_data && data.file_name) {
+    fileUrl = await fb_uploadFile('documents', data.file_data, docNumber + '_' + data.file_name);
+  }
+  const docRef = db.collection('documents').doc();
+  const docData = {
+    doc_number: docNumber, title: data.title||'', category: data.category||'',
+    file_url: fileUrl, file_name: data.file_name||'', file_type: (data.file_name||'').match(/\.pdf$/i)?'pdf':'excel',
+    creator_id: uid, creator_name: CURRENT_USER.name||'',
+    status: 'draft', current_step: 0, created_at: fb_now(), updated_at: fb_now(),
+    pdf_url: '', save_path: data.save_path||'', product_code: data.product_code||''
+  };
+  await docRef.set(docData);
+  // 결재선 생성
+  if(data.approval_steps) {
+    const steps = JSON.parse(data.approval_steps);
+    const batch = db.batch();
+    let stepOrder = 1;
+    // 작성자 서명 자동 포함 (서명 URL 가져오기)
+    if(data.include_author_signature) {
+      let authorSigUrl = '';
+      try {
+        const authorDoc = await db.collection('users').doc(uid).get();
+        if(authorDoc.exists) authorSigUrl = authorDoc.data().signature_url || '';
+      } catch(e) {}
+      const aRef = db.collection('approvals').doc();
+      batch.set(aRef, {
+        doc_id:docRef.id, step_order:0, step_name:'작성', approver_id:uid,
+        approver_name:CURRENT_USER.name||'', approver_dept:CURRENT_USER.department||'',
+        approver_position:CURRENT_USER.position||'', status:'approved', signed_at:fb_now(),
+        comment:'', signature_applied:'Y', signature_file_id:authorSigUrl
       });
-      return await resp.json();
-    } catch(ex2) {
-      throw ex;
+    }
+    for(const s of steps) {
+      const aRef = db.collection('approvals').doc();
+      batch.set(aRef, {
+        doc_id:docRef.id, step_order:stepOrder++, step_name:s.name||'결재',
+        approver_id:s.approver_id, approver_name:s.approver_name||'',
+        approver_dept:'', approver_position:'', status:'waiting',
+        signed_at:'', comment:'', signature_applied:'', signature_file_id:''
+      });
+    }
+    await batch.commit();
+  }
+  return { success:true, id:docRef.id, doc_number:docNumber };
+}
+
+async function fb_docDetail(data) {
+  const docId = data.doc_id || data.id;
+  const docSnap = await db.collection('documents').doc(docId).get();
+  if(!docSnap.exists) return { success:false, error:'문서를 찾을 수 없습니다.' };
+  const doc = { id:docSnap.id, ...docSnap.data() };
+  // 결재이력
+  const appSnap = await db.collection('approvals').where('doc_id','==',docId).orderBy('step_order').get();
+  const approvals = appSnap.docs.map(d => ({ id:d.id, ...d.data() }));
+  // 서명 base64 로드
+  for(const a of approvals) {
+    if(a.status==='approved') {
+      const uDoc = await db.collection('users').doc(a.approver_id).get();
+      if(uDoc.exists && uDoc.data().signature_url) {
+        try {
+          a.signature_base64 = await fb_downloadFileBase64(uDoc.data().signature_url);
+          a.signature_mime = 'image/png';
+        } catch(e) { a.signature_base64=''; }
+      }
+      if(!a.approver_dept || !a.approver_position) {
+        if(uDoc.exists) {
+          a.approver_dept = uDoc.data().department||'';
+          a.approver_position = uDoc.data().position||'';
+        }
+      }
     }
   }
+  // file_id 호환 (기존 코드에서 file_id 참조)
+  doc.file_id = doc.file_url || '';
+  doc.preview_url = doc.file_url || '';
+  return { success:true, document:doc, approvals };
+}
+
+async function fb_docDelete(data) {
+  const docId = data.doc_id || data.id;
+  await db.collection('documents').doc(docId).update({ status:'deleted', updated_at:fb_now() });
+  return { success:true };
+}
+
+async function fb_docBatchDelete(data) {
+  const ids = Array.isArray(data.ids) ? data.ids : String(data.ids).split(',');
+  const batch = db.batch();
+  ids.forEach(id => batch.update(db.collection('documents').doc(id.trim()), { status:'deleted', updated_at:fb_now() }));
+  await batch.commit();
+  return { success:true, deleted_count:ids.length };
+}
+
+async function fb_docFile(data) {
+  const docId = data.doc_id || data.id;
+  const docSnap = await db.collection('documents').doc(docId).get();
+  if(!docSnap.exists) return { success:false, error:'문서 없음' };
+  const doc = docSnap.data();
+  if(!doc.file_url) return { success:false, error:'파일 없음' };
+  const b64 = await fb_downloadFileBase64(doc.file_url);
+  return { success:true, data:b64, name:doc.file_name||'document', mime:doc.file_type==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+}
+
+async function fb_docSearch(data) {
+  const snap = await db.collection('documents').where('status','!=','deleted').get();
+  let docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  const q = (data.query||'').toLowerCase();
+  if(q) docs = docs.filter(d => (d.title||'').toLowerCase().includes(q) || (d.doc_number||'').toLowerCase().includes(q) || (d.creator_name||'').toLowerCase().includes(q) || (d.category||'').toLowerCase().includes(q));
+  if(data.status) docs = docs.filter(d => d.status===data.status);
+  if(data.date_from) docs = docs.filter(d => d.created_at >= data.date_from);
+  if(data.date_to) docs = docs.filter(d => d.created_at <= data.date_to+'T23:59:59');
+  docs.sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
+  return { success:true, documents:docs };
+}
+
+// ============================================================
+// 결재 프로세스
+// ============================================================
+async function fb_approvalSubmit(data) {
+  const uid = auth.currentUser.uid;
+  await db.collection('documents').doc(data.doc_id).update({ status:'pending', current_step:1, updated_at:fb_now() });
+  // 첫 번째 pending 결재자에게 알림
+  const appSnap = await db.collection('approvals').where('doc_id','==',data.doc_id).orderBy('step_order').get();
+  const steps = appSnap.docs.map(d=>({id:d.id,...d.data()}));
+  const firstPending = steps.find(s=>s.status==='waiting');
+  if(firstPending) {
+    await db.collection('approvals').doc(firstPending.id).update({ status:'pending' });
+    const docSnap = await db.collection('documents').doc(data.doc_id).get();
+    const title = docSnap.data().title||'';
+    await db.collection('notifications').add({
+      user_id:firstPending.approver_id, doc_id:data.doc_id, type:'approval_request',
+      message:CURRENT_USER.name+'님이 "'+title+'" 문서의 결재를 요청했습니다.',
+      read:false, created_at:fb_now(), doc_title:title
+    });
+  }
+  return { success:true };
+}
+
+async function fb_approvalApprove(data) {
+  const uid = auth.currentUser.uid;
+  const appSnap = await db.collection('approvals').where('doc_id','==',data.doc_id).orderBy('step_order').get();
+  const steps = appSnap.docs.map(d=>({id:d.id,...d.data()}));
+  const myStep = steps.find(s=>s.approver_id===uid && s.status==='pending');
+  if(!myStep) return { success:false, error:'결재 권한이 없거나 이미 처리되었습니다.' };
+  // 서명 URL 가져오기
+  const userDoc = await db.collection('users').doc(uid).get();
+  const sigUrl = userDoc.exists ? (userDoc.data().signature_url||'') : '';
+  await db.collection('approvals').doc(myStep.id).update({
+    status:'approved', signed_at:fb_now(), comment:data.comment||'', signature_applied:'Y', signature_file_id:sigUrl
+  });
+  // 다음 단계
+  const nextStep = steps.find(s=>s.step_order===myStep.step_order+1);
+  const docSnap = await db.collection('documents').doc(data.doc_id).get();
+  const docData = docSnap.data();
+  const title = docData.title||'';
+  if(nextStep) {
+    await db.collection('approvals').doc(nextStep.id).update({ status:'pending' });
+    await db.collection('documents').doc(data.doc_id).update({ current_step:myStep.step_order+1, updated_at:fb_now() });
+    await db.collection('notifications').add({ user_id:nextStep.approver_id, doc_id:data.doc_id, type:'approval_request', message:CURRENT_USER.name+'님이 "'+title+'" 문서를 승인했습니다. 결재를 진행해주세요.', read:false, created_at:fb_now(), doc_title:title });
+  } else {
+    // 최종 승인
+    await db.collection('documents').doc(data.doc_id).update({ status:'approved', updated_at:fb_now() });
+    // PDF 생성 (브라우저에서 pdf-lib + html2canvas)
+    try {
+      await fb_autoSavePdf(data.doc_id);
+    } catch(e) {
+      console.error('PDF 자동저장 실패:', e);
+      showToast('PDF 자동저장 실패: ' + e.message, 'warning');
+    }
+    await db.collection('notifications').add({ user_id:docData.creator_id, doc_id:data.doc_id, type:'approved', message:'"'+title+'" 문서가 최종 승인되었습니다.', read:false, created_at:fb_now(), doc_title:title });
+    return { success:true, is_final:true };
+  }
+  return { success:true, is_final:false };
+}
+
+async function fb_approvalReject(data) {
+  const uid = auth.currentUser.uid;
+  const appSnap = await db.collection('approvals').where('doc_id','==',data.doc_id).orderBy('step_order').get();
+  const steps = appSnap.docs.map(d=>({id:d.id,...d.data()}));
+  const myStep = steps.find(s=>s.approver_id===uid && s.status==='pending');
+  if(!myStep) return { success:false, error:'결재 권한이 없습니다.' };
+  await db.collection('approvals').doc(myStep.id).update({ status:'rejected', signed_at:fb_now(), comment:data.comment||'' });
+  const docSnap = await db.collection('documents').doc(data.doc_id).get();
+  const title = docSnap.data().title||'';
+  await db.collection('documents').doc(data.doc_id).update({ status:'rejected', rejection_comment:data.comment||'', rejection_by:uid, updated_at:fb_now() });
+  await db.collection('notifications').add({ user_id:docSnap.data().creator_id, doc_id:data.doc_id, type:'rejected', message:CURRENT_USER.name+'님이 "'+title+'" 문서를 반려했습니다.', read:false, created_at:fb_now(), doc_title:title });
+  return { success:true };
+}
+
+async function fb_approvalHistory(data) {
+  const snap = await db.collection('approvals').where('doc_id','==',data.doc_id).orderBy('step_order').get();
+  return { success:true, history:snap.docs.map(d=>({id:d.id,...d.data()})) };
+}
+
+// ============================================================
+// PDF 처리 (pdf-lib 브라우저 직접 처리)
+// ============================================================
+async function fb_autoSavePdf(docId) {
+  const docSnap = await db.collection('documents').doc(docId).get();
+  const doc = docSnap.data();
+  if(!doc.file_url) return;
+  // 결재이력 가져오기 + 사용자 정보 보강
+  const appSnap = await db.collection('approvals').where('doc_id','==',docId).orderBy('step_order').get();
+  let approvals = appSnap.docs.map(d=>d.data());
+  approvals = await fb_enrichApprovals(approvals);
+  // 원본 파일 다운로드
+  const resp = await fetch(doc.file_url);
+  const origBytes = new Uint8Array(await resp.arrayBuffer());
+  // PDF 결재란 삽입
+  const stampedBytes = await fb_addStampToPdf(origBytes, approvals, doc.file_type);
+  // Firebase Storage에 설정 경로대로 업로드
+  const pdfBlob = new Blob([stampedBytes], {type:'application/pdf'});
+  const storagePath = await fb_getPdfStoragePath(doc);
+  const fileName = (doc.doc_number||'doc') + '_' + (doc.title||'') + '.pdf';
+  const pdfRef = storage.ref(storagePath + '/' + fileName);
+  await pdfRef.put(pdfBlob);
+  const pdfUrl = await pdfRef.getDownloadURL();
+  await db.collection('documents').doc(docId).update({ pdf_url:pdfUrl, updated_at:fb_now() });
+}
+
+// ============================================================
+// 결재란 이미지 생성 (html2canvas — 한글 완벽 지원)
+// ============================================================
+async function fb_renderStampImage(approvals) {
+  const sd = STAMP_DISPLAY || { dept:true, name:true, position:true, date:true };
+  const stepCount = approvals.length;
+  if(stepCount === 0) return null;
+
+  // 숨겨진 HTML 결재란 테이블 생성 (컴팩트 크기)
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;background:#fff;padding:0;z-index:-1;';
+  const colPx = 58; // 각 열 너비(px) — 컴팩트
+  let html = '<table style="border-collapse:collapse;font-family:Noto Sans KR,Malgun Gothic,sans-serif;font-size:9px;"><tr>';
+  approvals.forEach(a => {
+    html += '<th style="border:1px solid #8ababa;padding:2px 4px;text-align:center;background:#dff0f0;font-weight:700;color:#004d4d;font-size:8px;width:'+colPx+'px;">' + (a.step_name||'결재') + '</th>';
+  });
+  html += '</tr><tr>';
+  approvals.forEach(a => {
+    html += '<td style="border:1px solid #8ababa;text-align:center;vertical-align:middle;height:42px;width:'+colPx+'px;background:#fff;padding:2px;">';
+    if(a.status==='approved' && a.signature_file_id) {
+      html += '<img src="' + a.signature_file_id + '" crossorigin="anonymous" style="max-width:'+(colPx-8)+'px;max-height:34px;object-fit:contain;">';
+    } else if(a.status==='approved') {
+      html += '<span style="color:#059669;font-size:18px;">&#10003;</span>';
+    }
+    html += '</td>';
+  });
+  if(sd.dept!==false || sd.name!==false || sd.position!==false) {
+    html += '</tr><tr>';
+    approvals.forEach(a => {
+      let lines = [];
+      if(sd.dept!==false && a.approver_dept) lines.push('<span style="color:#555;font-size:7px;">' + a.approver_dept + '</span>');
+      let np = [];
+      if(sd.name!==false && a.approver_name) np.push(a.approver_name);
+      if(sd.position!==false && a.approver_position) np.push(a.approver_position);
+      if(np.length) lines.push('<span style="font-size:7px;">' + np.join(' ') + '</span>');
+      html += '<td style="border:1px solid #8ababa;text-align:center;padding:1px 2px;line-height:1.3;">' + lines.join('<br>') + '</td>';
+    });
+  }
+  if(sd.date!==false) {
+    html += '</tr><tr>';
+    approvals.forEach(a => {
+      let ds = '';
+      if(a.signed_at||a.approved_at) {
+        const dt = new Date(a.signed_at||a.approved_at);
+        ds = dt.getFullYear()+'.'+(dt.getMonth()+1)+'.'+dt.getDate();
+      }
+      html += '<td style="border:1px solid #8ababa;text-align:center;padding:1px 2px;font-size:7px;color:#666;">' + ds + '</td>';
+    });
+  }
+  html += '</tr></table>';
+  wrap.innerHTML = html;
+  document.body.appendChild(wrap);
+
+  // 서명 이미지 로드 대기
+  const imgs = wrap.querySelectorAll('img');
+  await Promise.all([...imgs].map(img => new Promise(resolve => {
+    if(img.complete) resolve();
+    else { img.onload = resolve; img.onerror = resolve; }
+  })));
+  await new Promise(r => setTimeout(r, 300));
+
+  // html2canvas로 고해상도 캡처
+  const canvas = await html2canvas(wrap, { scale: 4, backgroundColor: '#ffffff', useCORS: true, allowTaint: true });
+  document.body.removeChild(wrap);
+  return canvas;
+}
+
+async function fb_addStampToPdf(fileBytes, approvals, fileType) {
+  const { PDFDocument } = PDFLib;
+  let pdfDoc;
+  if(fileType==='pdf') {
+    pdfDoc = await PDFDocument.load(fileBytes, { ignoreEncryption: true });
+  } else {
+    // Excel → 빈 A4 PDF
+    pdfDoc = await PDFDocument.create();
+    pdfDoc.addPage([595.28, 841.89]);
+  }
+
+  const pages = pdfDoc.getPages();
+  if(pages.length === 0) return await pdfDoc.save();
+  const page = pages[0];
+  const { width, height } = page.getSize();
+
+  if(approvals.length === 0) return await pdfDoc.save();
+
+  // 결재란 HTML → 이미지 렌더링
+  const stampCanvas = await fb_renderStampImage(approvals);
+  if(!stampCanvas) return await pdfDoc.save();
+
+  // Canvas → PNG bytes
+  const stampDataUrl = stampCanvas.toDataURL('image/png');
+  const stampBase64 = stampDataUrl.split(',')[1];
+  const stampBytes = Uint8Array.from(atob(stampBase64), c => c.charCodeAt(0));
+  const stampImage = await pdfDoc.embedPng(stampBytes);
+
+  // 결재란 크기 계산: 1.6배 (기본의 2배에서 80%)
+  const cssW = stampCanvas.width / 4;
+  const cssH = stampCanvas.height / 4;
+  const scale = 1.6;
+  const stampW = cssW * 0.75 * scale;
+  const stampH = cssH * 0.75 * scale;
+
+  // 페이지 초과 방지: 결재란이 페이지보다 넓으면 축소
+  const maxW = width - 85 - 20; // 우측여백3cm + 좌측최소여백
+  const finalScale = stampW > maxW ? maxW / stampW : 1;
+  const finalW = stampW * finalScale;
+  const finalH = stampH * finalScale;
+
+  // 우측 하단 배치 (여백: 오른쪽 3cm=85pt, 아래 3cm=85pt)
+  const stampX = width - finalW - 85;
+  const stampY = 85; // 하단 여백 3cm
+
+  // 흰 배경 (원본 내용 가리기)
+  page.drawRectangle({ x: stampX-1, y: stampY-1, width: finalW+2, height: finalH+2,
+    color: PDFLib.rgb(1,1,1) });
+
+  // 결재란 이미지 삽입
+  page.drawImage(stampImage, { x: stampX, y: stampY, width: finalW, height: finalH });
+
+  return await pdfDoc.save();
+}
+
+// 결재이력에 사용자 정보(부서, 직책) 보강
+async function fb_enrichApprovals(approvals) {
+  for(const a of approvals) {
+    if(a.approver_id && (!a.approver_dept || !a.approver_position)) {
+      try {
+        const uDoc = await db.collection('users').doc(a.approver_id).get();
+        if(uDoc.exists) {
+          const u = uDoc.data();
+          if(!a.approver_dept) a.approver_dept = u.department||'';
+          if(!a.approver_position) a.approver_position = u.position||'';
+          if(!a.approver_name) a.approver_name = u.name||'';
+          // 서명 URL
+          if(a.status==='approved' && u.signature_url && !a.signature_file_id) {
+            a.signature_file_id = u.signature_url;
+          }
+        }
+      } catch(e) {}
+    }
+  }
+  return approvals;
+}
+
+// PDF 저장 경로 생성 (설정 페이지의 경로 템플릿 사용)
+async function fb_getPdfStoragePath(doc) {
+  const now = new Date();
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth()+1);
+  const category = doc.category || '기타';
+
+  // 설정에서 경로 템플릿 가져오기
+  let pathTemplate = '';
+  try {
+    const settingsSnap = await db.collection('settings').doc('save_path_template').get();
+    const baseTemplate = settingsSnap.exists ? (settingsSnap.data().value || '') : '';
+
+    // 문서 종류별 경로 확인
+    const typePathSnap = await db.collection('settings').doc('doc_type_paths').get();
+    if(typePathSnap.exists) {
+      try {
+        const typePaths = JSON.parse(typePathSnap.data().value || '{}');
+        if(typePaths[category]) {
+          pathTemplate = typePaths[category];
+        }
+      } catch(e) {}
+    }
+
+    // 문서 종류별 경로 없으면 기본 템플릿 + 종류
+    if(!pathTemplate) {
+      pathTemplate = (baseTemplate || '승인문서/{year}/{month}') + '/' + category;
+    }
+  } catch(e) {
+    pathTemplate = '승인문서/' + year + '/' + month + '/' + category;
+  }
+
+  // 변수 치환
+  pathTemplate = pathTemplate
+    .replace(/\{year\}/g, year)
+    .replace(/\{month\}/g, month)
+    .replace(/\{doc_type\}/g, category);
+
+  // Firebase Storage 경로: approved_pdfs/ 접두어 + 설정 경로
+  return 'approved_pdfs/' + pathTemplate;
+}
+
+async function fb_generatePdf(data) {
+  const docId = data.doc_id || data.id;
+  const docSnap = await db.collection('documents').doc(docId).get();
+  if(!docSnap.exists) return { success:false, error:'문서 없음' };
+  const doc = docSnap.data();
+  if(!doc.file_url) return { success:false, error:'파일 없음' };
+  const appSnap = await db.collection('approvals').where('doc_id','==',docId).orderBy('step_order').get();
+  let approvals = appSnap.docs.map(d=>d.data());
+  approvals = await fb_enrichApprovals(approvals);
+  const resp = await fetch(doc.file_url);
+  const origBytes = new Uint8Array(await resp.arrayBuffer());
+  const stampedBytes = await fb_addStampToPdf(origBytes, approvals, doc.file_type);
+  // 큰 PDF 안전한 base64 변환 (btoa 대신 chunk 처리)
+  const b64 = await fb_uint8ToBase64(stampedBytes);
+  return { success:true, pdf_base64:b64, file_name:(doc.doc_number||'doc')+'_'+(doc.title||'')+'.pdf' };
+}
+
+// 큰 Uint8Array를 안전하게 base64로 변환 (btoa 스택 오버플로 방지)
+function fb_uint8ToBase64(uint8) {
+  let binary = '';
+  const chunk = 8192;
+  for(let i=0; i<uint8.length; i+=chunk) {
+    binary += String.fromCharCode.apply(null, uint8.subarray(i, Math.min(i+chunk, uint8.length)));
+  }
+  return btoa(binary);
+}
+
+async function fb_regenPdf(data) {
+  const docId = data.doc_id || data.id;
+  await fb_autoSavePdf(docId);
+  const docSnap = await db.collection('documents').doc(docId).get();
+  return { success:true, pdf_url:docSnap.data().pdf_url||'' };
+}
+
+async function fb_savePdf(data) {
+  const docId = data.doc_id || data.id;
+  const docSnap = await db.collection('documents').doc(docId).get();
+  if(!docSnap.exists) return { success:false, error:'문서 없음' };
+  const doc = docSnap.data();
+  const fileName = (doc.doc_number||'doc')+'_'+(doc.title||'')+'.pdf';
+  const storagePath = await fb_getPdfStoragePath(doc);
+  const pdfRef = storage.ref(storagePath + '/' + fileName);
+  const byteChars = atob(data.pdf_data);
+  const byteNums = new Array(byteChars.length);
+  for(let i=0;i<byteChars.length;i++) byteNums[i]=byteChars.charCodeAt(i);
+  await pdfRef.put(new Blob([new Uint8Array(byteNums)], {type:'application/pdf'}));
+  const url = await pdfRef.getDownloadURL();
+  await db.collection('documents').doc(docId).update({ pdf_url:url, updated_at:fb_now() });
+  return { success:true, pdf_url:url };
+}
+
+// ============================================================
+// 알림
+// ============================================================
+async function fb_notifications() {
+  const uid = auth.currentUser.uid;
+  const snap = await db.collection('notifications').where('user_id','==',uid).orderBy('created_at','desc').limit(50).get();
+  const items = snap.docs.map(d=>({id:d.id,...d.data()}));
+  const unread = items.filter(n=>!n.read).length;
+  return { success:true, notifications:items, unread_count:unread };
+}
+
+async function fb_notificationRead(data) {
+  const uid = auth.currentUser.uid;
+  if(data.id === 'all') {
+    // 모두 읽음: 내 알림 전체 read=true
+    const snap = await db.collection('notifications').where('user_id','==',uid).where('read','==',false).get();
+    if(!snap.empty) {
+      for(let i=0; i<snap.docs.length; i+=450) {
+        const batch = db.batch();
+        snap.docs.slice(i, i+450).forEach(d => batch.update(d.ref, { read:true }));
+        await batch.commit();
+      }
+    }
+    return { success:true };
+  }
+  await db.collection('notifications').doc(data.id).update({ read:true });
+  return { success:true };
+}
+
+async function fb_notificationDelete(data) {
+  const uid = auth.currentUser.uid;
+  if(data.id === 'all') {
+    // 전체 삭제: 내 알림 전부 삭제
+    const snap = await db.collection('notifications').where('user_id','==',uid).get();
+    if(!snap.empty) {
+      for(let i=0; i<snap.docs.length; i+=450) {
+        const batch = db.batch();
+        snap.docs.slice(i, i+450).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
+    return { success:true };
+  }
+  await db.collection('notifications').doc(data.id).delete();
+  return { success:true };
+}
+
+// ============================================================
+// 설정
+// ============================================================
+async function fb_settingsGet() {
+  const snap = await db.collection('settings').get();
+  const settings = {};
+  snap.docs.forEach(d => { settings[d.id] = d.data().value; });
+  return { success:true, settings };
+}
+
+async function fb_settingsUpdate(data) {
+  const updates = data.settings || {};
+  const batch = db.batch();
+  Object.keys(updates).forEach(key => {
+    batch.set(db.collection('settings').doc(key), { value:updates[key] }, { merge:true });
+  });
+  await batch.commit();
+  return { success:true };
+}
+
+// ============================================================
+// 대시보드
+// ============================================================
+async function fb_dashboard() {
+  const snap = await db.collection('documents').where('status','!=','deleted').get();
+  const docs = snap.docs.map(d=>d.data());
+  return {
+    success:true,
+    total_docs: docs.length,
+    pending_docs: docs.filter(d=>d.status==='pending').length,
+    approved_docs: docs.filter(d=>d.status==='approved').length,
+    rejected_docs: docs.filter(d=>d.status==='rejected').length,
+    draft_docs: docs.filter(d=>d.status==='draft').length,
+    recent_docs: docs.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,10)
+  };
+}
+
+// ============================================================
+// 로그인 이력
+// ============================================================
+async function fb_loginHistory() {
+  const snap = await db.collection('login_history').orderBy('login_at','desc').limit(100).get();
+  return { success:true, history:snap.docs.map(d=>({id:d.id,...d.data()})) };
+}
+
+async function fb_loginHistoryDelete(data) {
+  // 전체 삭제
+  if(data.id === 'all') {
+    const snap = await db.collection('login_history').get();
+    if(snap.empty) return { success:true };
+    // batch 최대 500건 → 분할
+    const docs = snap.docs;
+    for(let i=0; i<docs.length; i+=450) {
+      const batch = db.batch();
+      docs.slice(i, i+450).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    return { success:true };
+  }
+  // 개별 삭제
+  if(data.id) {
+    await db.collection('login_history').doc(data.id).delete();
+    return { success:true };
+  }
+  // ids 배열 삭제
+  if(data.ids) {
+    const ids = Array.isArray(data.ids)?data.ids:String(data.ids).split(',');
+    const batch = db.batch();
+    ids.forEach(id=>batch.delete(db.collection('login_history').doc(id.trim())));
+    await batch.commit();
+  }
+  return { success:true };
+}
+
+// ============================================================
+// BOM QA (제품 데이터)
+// ============================================================
+async function fb_bomQaUpload(data) {
+  const products = data.products || [];
+  if(!products.length) return { success:false, error:'데이터 없음' };
+  // Firestore batch 최대 500건 → 분할
+  for(let i=0; i<products.length; i+=450) {
+    const batch = db.batch();
+    const chunk = products.slice(i, i+450);
+    chunk.forEach(p => {
+      const ref = db.collection('bom_qa').doc(p.product_code);
+      batch.set(ref, { product_code:p.product_code, product_name:p.product_name, updated_at:fb_now() }, {merge:true});
+    });
+    await batch.commit();
+  }
+  return { success:true, count:products.length };
+}
+
+async function fb_bomQaSearch(data) {
+  const snap = await db.collection('bom_qa').get();
+  let products = snap.docs.map(d=>d.data());
+  const q = (data.query||'').toLowerCase();
+  if(q) products = products.filter(p => (p.product_code||'').toLowerCase().includes(q) || (p.product_name||'').toLowerCase().includes(q));
+  return { success:true, products };
 }
 
 function showLoading(text) {
@@ -1017,11 +1871,6 @@ async function checkSession() {
 function showLogin() {
   document.getElementById('loginPage').style.display = 'flex';
   document.getElementById('appWrap').style.display = 'none';
-  document.getElementById('apiUrlInput').value = API_URL;
-  // API URL이 자동 주입/하드코딩/localStorage에 있으면 수동 입력란 숨김
-  const hasAutoUrl = API_URL && API_URL.startsWith('http');
-  document.getElementById('apiSection').style.display = hasAutoUrl ? 'none' : 'block';
-  document.getElementById('apiSectionDivider').style.display = hasAutoUrl ? 'none' : 'block';
 }
 
 function showApp() {
@@ -1335,13 +2184,22 @@ function setupDropZone(zoneId, inputId, handler) {
   });
 }
 
-// 파일명에서 제품명 추출 (_로 구분된 항목 중 가장 긴 단어)
+// 현재 선택된 제품명 추출 모드
+function getProdNameMode() {
+  const el = document.getElementById('prodNameModeExtract');
+  return (el && el.checked) ? 'extract' : 'full';
+}
+
+// 파일명에서 제품명 추출
 function extractProductName(fileName) {
   let name = fileName.replace(/\.(xlsx?|pdf)$/i, '');
-  // _ 또는 - 로 구분된 부분들
+
+  // "파일명 전체" 모드: 확장자만 제거하고 그대로 반환
+  if (getProdNameMode() === 'full') return name.trim();
+
+  // "자동 추출" 모드: _로 구분된 항목 중 가장 긴 단어
   const parts = name.split(/[_]/).map(s => s.trim()).filter(Boolean);
   if (parts.length >= 2) {
-    // 가장 긴 항목 = 제품명일 가능성 높음
     let longest = parts[0], longestLen = 0;
     parts.forEach(p => { if (p.length > longestLen) { longestLen = p.length; longest = p; } });
     return longest;
@@ -1355,9 +2213,9 @@ function extractProductName(fileName) {
 function handleDocFiles(fileList) {
   const validFiles = [];
   for (let i = 0; i < fileList.length; i++) {
-    if (fileList[i].name.match(/\.(xlsx?|pdf)$/i)) validFiles.push(fileList[i]);
+    if (fileList[i].name.match(/\.pdf$/i)) validFiles.push(fileList[i]);
   }
-  if (!validFiles.length) { showToast('엑셀 또는 PDF 파일만 업로드 가능합니다.', 'danger'); return; }
+  if (!validFiles.length) { showToast('PDF 파일만 업로드 가능합니다.', 'danger'); return; }
   if (validFiles.length > 15) { showToast('한번에 최대 15개까지 업로드 가능합니다. (' + validFiles.length + '개 선택됨)', 'warning'); return; }
 
   if (validFiles.length === 1) {
@@ -1392,8 +2250,18 @@ function handleDocFiles(fileList) {
   showToast(validFiles.length + '개 파일이 추가되었습니다. 문서 종류와 결재선을 설정 후 결재 요청하세요.', 'info');
 }
 
+// 제품명 추출 모드 변경 시 다중파일 목록 갱신
+function refreshMultiFileNames() {
+  if (!multiDocFiles || multiDocFiles.length <= 1) return;
+  const inputs = document.querySelectorAll('.multi-prod-name');
+  inputs.forEach(inp => {
+    const idx = parseInt(inp.dataset.idx);
+    if (multiDocFiles[idx]) inp.value = extractProductName(multiDocFiles[idx].name);
+  });
+}
+
 function handleDocFile(file) {
-  if (!file.name.match(/\.(xlsx?|pdf)$/i)) { showToast('엑셀 또는 PDF 파일만 업로드 가능합니다.', 'danger'); return; }
+  if (!file.name.match(/\.pdf$/i)) { showToast('PDF 파일만 업로드 가능합니다.', 'danger'); return; }
   currentDocFile = file;
   multiDocFiles = [];
   document.getElementById('multiFileList').style.display = 'none';
@@ -1453,7 +2321,7 @@ function addApprovalStep(name, approverId) {
   const div = document.createElement('div');
   div.className = 'row g-2 align-items-end mb-2 approval-step-row';
   div.innerHTML = `
-    <div class="col-md-2"><label class="form-label" style="font-size:12px">단계 ${stepNum}</label><input type="text" class="form-control form-control-sm step-name" value="${name || (stepNum===1?'검토':'승인')}"></div>
+    <div class="col-md-2"><label class="form-label" style="font-size:12px">${stepNum}단계</label><input type="text" class="form-control form-control-sm step-name" value="${name || (stepNum===1?'검토':'승인')}"></div>
     <div class="col-md-5"><label class="form-label" style="font-size:12px">결재자</label>
       <select class="form-select form-select-sm step-approver">
         <option value="">선택하세요</option>
@@ -1466,7 +2334,7 @@ function addApprovalStep(name, approverId) {
 
 function renumberSteps() {
   document.querySelectorAll('#approvalStepsCreate .approval-step-row').forEach((row, i) => {
-    row.querySelector('label').textContent = '단계 ' + (i + 1);
+    row.querySelector('label').textContent = (i + 1) + '단계';
   });
 }
 
@@ -1797,7 +2665,7 @@ async function doApprove() {
     endSync();
     if (!result.success) { showToast(result.error, 'danger'); viewDocument(currentDocId); return; }
     lsDel('pending_approval'); lsDel('all_docs'); lsDel('dashboard');
-    if (result.is_final) showToast('최종 승인 완료! PDF가 구글드라이브에 자동 저장되었습니다.');
+    if (result.is_final) showToast('최종 승인 완료! 결재란이 포함된 PDF가 Firebase Storage에 자동 저장되었습니다.');
     else showToast('승인 처리되었습니다.');
     viewDocument(currentDocId);
   } catch(ex) { endSync(); showToast('오류: ' + ex.message, 'danger'); }
@@ -1837,7 +2705,7 @@ async function handlePdfBtn() {
       const result = await api('regen_pdf', { doc_id: currentDocId });
       hideLoading();
       if (result.success) {
-        showToast('PDF가 구글드라이브에 저장되었습니다.');
+        showToast('PDF가 Firebase Storage에 저장되었습니다.');
         if (result.pdf_url) window.open(result.pdf_url, '_blank');
         viewDocument(currentDocId);
       } else {
@@ -1957,13 +2825,17 @@ async function saveUser() {
     if (id) { data.id = id; result = await api('user_update', data); }
     else result = await api('user_add', data);
     if (!result.success) { hideLoading(); showToast(result.error, 'danger'); return; }
-    if (uploadedSignatureData) {
-      await api('user_signature_upload', { target_id: id || result.id, image_data: uploadedSignatureData.data, mime_type: uploadedSignatureData.type });
-    }
     hideLoading();
     bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
-    showToast('저장되었습니다.');
-    loadUsers();
+    if (result.need_relogin) {
+      // 새 사용자 생성 시 Auth 세션이 바뀌므로 재로그인 필요
+      showToast('사용자가 추가되었습니다. 다시 로그인해 주세요.', 'info');
+      await auth.signOut();
+      showLogin();
+    } else {
+      showToast('저장되었습니다.');
+      loadUsers();
+    }
   } catch(ex) { hideLoading(); showToast('오류: ' + ex.message, 'danger'); }
 }
 
