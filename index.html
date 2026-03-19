@@ -86,6 +86,12 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 .table-wrap { background:#fff; border-radius:14px; border:1px solid #cce4e4; overflow:hidden; box-shadow:0 2px 6px rgba(0,102,102,.05); }
 .table-wrap .table { margin:0; }
 .table-wrap .table th { background:#eef8f8; font-weight:600; font-size:12px; color:var(--primary-dark); padding:10px 14px; border-bottom:2px solid #c0e0e0; white-space:nowrap; }
+.sortable-th { cursor:pointer; user-select:none; }
+.sortable-th:hover { background:#ddf0f0 !important; }
+.sortable-th .sort-icon { font-size:10px; opacity:0.4; }
+.sortable-th.sort-asc .sort-icon::before { content:"\F282"; }
+.sortable-th.sort-desc .sort-icon::before { content:"\F286"; }
+.sortable-th.sort-asc .sort-icon, .sortable-th.sort-desc .sort-icon { opacity:1; color:var(--primary); }
 .table-wrap .table td { padding:10px 14px; vertical-align:middle; font-size:13px; border-color:#eef8f8; }
 .table-wrap .table tbody tr:hover { background:#f5fafa; }
 
@@ -463,7 +469,13 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
         <div class="table-wrap">
           <table class="table"><thead><tr>
             <th style="width:36px"><input type="checkbox" id="selectAllPending" onchange="toggleSelectAllPending()"></th>
-            <th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성자</th><th>요청일</th><th>상태</th><th></th></tr></thead>
+            <th class="sortable-th" onclick="sortTable('pending','doc_number')">문서번호 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('pending','title')">제목 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('pending','category')">문서 종류 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('pending','creator_name')">작성자 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('pending','created_at')">요청일 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('pending','status')">상태 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th></th></tr></thead>
           <tbody id="pendingApprovalTbody"><tr><td colspan="8" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr></tbody></table>
         </div>
       </div>
@@ -482,7 +494,14 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection('myDocsTbody')">취소</button>
         </div>
         <div class="table-wrap">
-          <table class="table"><thead><tr><th style="width:36px"><input type="checkbox" id="selectAll-myDocsTbody" onchange="toggleSelectAll('myDocsTbody')" style="display:none"></th><th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
+          <table class="table"><thead><tr><th style="width:36px"><input type="checkbox" id="selectAll-myDocsTbody" onchange="toggleSelectAll('myDocsTbody')" style="display:none"></th>
+            <th class="sortable-th" onclick="sortTable('mydocs','doc_number')">문서번호 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('mydocs','title')">제목 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('mydocs','category')">문서 종류 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('mydocs','creator_name')">작성자 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('mydocs','created_at')">작성일 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('mydocs','status')">상태 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th></th></tr></thead>
           <tbody id="myDocsTbody"><tr><td colspan="8" class="text-center text-muted py-4">문서가 없습니다.</td></tr></tbody></table>
         </div>
       </div>
@@ -504,7 +523,14 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection('searchResultTbody')">취소</button>
         </div>
         <div class="table-wrap">
-          <table class="table"><thead><tr><th style="width:36px"><input type="checkbox" id="selectAll-searchResultTbody" onchange="toggleSelectAll('searchResultTbody')" style="display:none"></th><th>문서번호</th><th>제목</th><th>문서 종류</th><th>작성자</th><th>작성일</th><th>상태</th><th></th></tr></thead>
+          <table class="table"><thead><tr><th style="width:36px"><input type="checkbox" id="selectAll-searchResultTbody" onchange="toggleSelectAll('searchResultTbody')" style="display:none"></th>
+            <th class="sortable-th" onclick="sortTable('search','doc_number')">문서번호 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('search','title')">제목 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('search','category')">문서 종류 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('search','creator_name')">작성자 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('search','created_at')">작성일 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th class="sortable-th" onclick="sortTable('search','status')">상태 <i class="bi bi-chevron-expand sort-icon"></i></th>
+            <th></th></tr></thead>
           <tbody id="searchResultTbody"><tr><td colspan="8" class="text-center text-muted py-4">로딩 중...</td></tr></tbody></table>
         </div>
       </div>
@@ -1413,6 +1439,30 @@ async function fb_docList(data) {
     const myDocIds = new Set(approvalSnap.docs.map(d=>d.data().doc_id));
     docs = docs.filter(d => d.creator_id === uid || myDocIds.has(d.id));
   }
+  // 결재 대기: 내가 결재자인 pending 문서 + my_turn 표시
+  if(data.filter === 'pending_my_approval') {
+    const approvalSnap = await db.collection('approvals').where('approver_id','==',uid).get();
+    const myApprovals = {};
+    approvalSnap.docs.forEach(d => {
+      const a = d.data();
+      myApprovals[a.doc_id] = a;
+    });
+    docs = docs.filter(d => d.status === 'pending' && myApprovals[d.id]);
+    // 모든 결재 정보 가져와서 my_turn 판단
+    const allApprovalSnap = await db.collection('approvals').get();
+    const docApprovals = {};
+    allApprovalSnap.docs.forEach(d => {
+      const a = d.data();
+      if (!docApprovals[a.doc_id]) docApprovals[a.doc_id] = [];
+      docApprovals[a.doc_id].push(a);
+    });
+    docs.forEach(d => {
+      const steps = (docApprovals[d.id] || []).filter(a => a.step_order > 0).sort((a,b) => a.step_order - b.step_order);
+      // 아직 승인 안 된 첫 번째 단계가 나인지 확인
+      const nextPending = steps.find(s => s.status === 'pending');
+      d.my_turn = nextPending && nextPending.approver_id === uid;
+    });
+  }
   return { success:true, documents:docs };
 }
 
@@ -2245,20 +2295,73 @@ async function loadPendingApproval() {
   } catch(ex) {}
 }
 
-function renderPendingTable(docs) {
+// ============================================================
+// 테이블 정렬 기능
+// ============================================================
+const _tableData = { pending: [], mydocs: [], search: [] };
+const _sortState = { pending: { key: null, dir: 'asc' }, mydocs: { key: null, dir: 'asc' }, search: { key: null, dir: 'asc' } };
+
+function sortTable(tableId, key) {
+  const state = _sortState[tableId];
+  if (state.key === key) { state.dir = state.dir === 'asc' ? 'desc' : 'asc'; }
+  else { state.key = key; state.dir = 'asc'; }
+  // 헤더 아이콘 업데이트
+  const tableMap = { pending: 'pendingApprovalTbody', mydocs: 'myDocsTbody', search: 'searchResultTbody' };
+  const table = document.getElementById(tableMap[tableId])?.closest('table');
+  if (table) {
+    table.querySelectorAll('.sortable-th').forEach(th => { th.classList.remove('sort-asc','sort-desc'); });
+    const ths = table.querySelectorAll('.sortable-th');
+    ths.forEach(th => {
+      if (th.getAttribute('onclick')?.includes("'" + key + "'")) {
+        th.classList.add(state.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      }
+    });
+  }
+  // 정렬 수행
+  const data = [..._tableData[tableId]];
+  data.sort((a, b) => {
+    let va = (a[key] || ''), vb = (b[key] || '');
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va < vb) return state.dir === 'asc' ? -1 : 1;
+    if (va > vb) return state.dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+  // 다시 렌더
+  if (tableId === 'pending') renderPendingTable(data, true);
+  else if (tableId === 'mydocs') renderDocTable('myDocsTbody', data, true, true);
+  else if (tableId === 'search') renderDocTable('searchResultTbody', data, true, true);
+}
+
+function renderPendingTable(docs, skipStore) {
   const tbody = document.getElementById('pendingApprovalTbody');
   clearPendingSelection();
+  if (!skipStore) {
+    // 기본 정렬: 내가 결재할 차례인 문서 우선
+    const uid = auth.currentUser?.uid;
+    docs.sort((a, b) => {
+      const aIsMyTurn = a.my_turn ? 0 : 1;
+      const bIsMyTurn = b.my_turn ? 0 : 1;
+      if (aIsMyTurn !== bIsMyTurn) return aIsMyTurn - bIsMyTurn;
+      // 같은 그룹 내에서는 요청일 최신순
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
+    _tableData.pending = docs;
+  }
   if (!docs.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr>'; return; }
-  tbody.innerHTML = docs.map(d => `<tr>
+  tbody.innerHTML = docs.map(d => {
+    const myTurnClass = d.my_turn ? 'style="background:#fffbe6"' : '';
+    return `<tr ${myTurnClass}>
     <td><input type="checkbox" class="pending-check" value="${d.id}" data-title="${esc(d.title)}" onchange="updateBulkApproveBar()"></td>
     <td><span class="fw-semibold">${esc(d.doc_number)}</span></td>
-    <td>${esc(d.title)}</td>
+    <td>${esc(d.title)}${d.my_turn ? ' <span class="badge bg-warning text-dark" style="font-size:10px">내 차례</span>' : ''}</td>
     <td>${categoryBadge(d.category)}</td>
     <td>${esc(d.creator_name)}</td>
     <td>${formatDate(d.created_at)}</td>
     <td>${statusBadge(d.status)}</td>
     <td><button class="btn btn-sm btn-outline-primary" onclick="viewDocument('${d.id}')"><i class="bi bi-eye"></i></button></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 }
 
 function toggleSelectAllPending() {
@@ -2366,10 +2469,15 @@ async function loadAllDocsToSearch() {
   } catch(ex) {}
 }
 
-function renderDocTable(tbodyId, docs, showCreator) {
+function renderDocTable(tbodyId, docs, showCreator, skipStore) {
   const tbody = document.getElementById(tbodyId);
   const isAdmin = CURRENT_USER && CURRENT_USER.role === 'admin';
-  const colSpan = 8; // 체크박스 포함
+  const colSpan = 8;
+  // 데이터 저장 (정렬용)
+  if (!skipStore) {
+    if (tbodyId === 'myDocsTbody') _tableData.mydocs = docs;
+    else if (tbodyId === 'searchResultTbody') _tableData.search = docs;
+  }
   // 전체선택 체크박스 표시/초기화
   const selectAllCb = document.getElementById('selectAll-' + tbodyId);
   if (selectAllCb) { selectAllCb.style.display = isAdmin ? '' : 'none'; selectAllCb.checked = false; selectAllCb.indeterminate = false; }
