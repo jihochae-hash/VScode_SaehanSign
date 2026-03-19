@@ -278,6 +278,11 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
       </div>
       <div class="d-flex align-items-center gap-2">
         <span id="syncStatusBar"><span class="sync-bar-bg" id="syncBarBg"></span><span class="sync-content"><i class="bi bi-arrow-repeat" style="animation:syncSpin 1.5s linear infinite"></i><span>동기화 중... <small style="font-weight:400;opacity:.8">다른 페이지로 이동 가능</small></span></span></span>
+        <span id="gdriveTopStatus" style="font-size:12px;display:none" class="d-flex align-items-center gap-1">
+          <i class="bi bi-cloud-check-fill text-success" id="gdriveTopIcon"></i>
+          <span id="gdriveTopText" class="text-success">Drive 연결됨</span>
+          <button class="btn btn-outline-warning btn-sm" id="gdriveTopBtn" onclick="connectGoogleDrive()" style="font-size:11px;padding:1px 8px;display:none">연결</button>
+        </span>
         <button class="btn btn-success" onclick="refreshCurrentPage()" title="새로고침" style="font-size:13px;padding:5px 14px;line-height:1"><i class="bi bi-arrow-clockwise me-1"></i>새로고침</button>
         <div class="dropdown">
           <button class="btn btn-sm btn-light position-relative" data-bs-toggle="dropdown" onclick="loadNotifications()">
@@ -1292,7 +1297,21 @@ async function fb_userAdd(data) {
       role: data.role||'user', status:'active', created_at:fb_now(), email:data.email||'', signature_url:''
     });
 
-    return { success:true, need_relogin: true };
+    // 관리자 세션 복귀
+    const adminUser = CURRENT_USER;
+    const adminEmail = adminUser.username + '@saehansign.local';
+    // 관리자로 다시 로그인 (admin_password가 전달된 경우)
+    if (data._admin_password) {
+      try {
+        await auth.signInWithEmailAndPassword(adminEmail, data._admin_password);
+      } catch(e) {
+        return { success:true, need_relogin: true };
+      }
+    } else {
+      return { success:true, need_relogin: true };
+    }
+
+    return { success:true };
   } catch(ex) {
     return { success:false, error:ex.message };
   }
@@ -2096,6 +2115,7 @@ function showApp() {
   document.getElementById('sidebarUserPos').textContent = CURRENT_USER.position;
   // Google Drive 자동 연결 (로그인 직후)
   initGoogleDrive();
+  updateGdriveTopStatus();
   setTimeout(() => { autoConnectGoogleDrive(); }, 1500);
   document.getElementById('topBarUser').textContent = CURRENT_USER.name;
   if (CURRENT_USER.role === 'admin') {
@@ -3145,7 +3165,13 @@ async function saveUser() {
       }
       result = await api('user_update', data);
     }
-    else result = await api('user_add', data);
+    else {
+      // 사용자 추가 시 관리자 비밀번호를 함께 전달 (세션 복귀용)
+      const adminPw = prompt('새 사용자 추가를 위해 현재 로그인된 관리자 비밀번호를 입력해주세요:');
+      if (!adminPw) { hideLoading(); showToast('관리자 비밀번호가 필요합니다.', 'warning'); return; }
+      data._admin_password = adminPw;
+      result = await api('user_add', data);
+    }
     if (!result.success) { hideLoading(); showToast(result.error, 'danger'); return; }
     if (result.pw_warning) showToast(result.pw_warning, 'info');
     hideLoading();
@@ -3159,12 +3185,12 @@ async function saveUser() {
     }
 
     if (result.need_relogin) {
-      // 새 사용자 생성 시 Auth 세션이 바뀌므로 재로그인 필요
       showToast('사용자가 추가되었습니다. 다시 로그인해 주세요.', 'info');
       await auth.signOut();
       showLogin();
     } else {
       showToast('저장되었습니다.');
+      await loadAllUsers(); // 캐시 갱신
       loadUsers();
     }
   } catch(ex) { hideLoading(); showToast('오류: ' + ex.message, 'danger'); }
@@ -3419,6 +3445,37 @@ async function saveDefaultApprovalChain() {
   } catch(ex) { hideLoading(); }
 }
 
+// 상단바 Google Drive 상태 업데이트
+function updateGdriveTopStatus() {
+  const wrap = document.getElementById('gdriveTopStatus');
+  const icon = document.getElementById('gdriveTopIcon');
+  const text = document.getElementById('gdriveTopText');
+  const btn = document.getElementById('gdriveTopBtn');
+  if (!wrap) return;
+  wrap.style.display = 'flex';
+  const connected = gdriveAccessToken && Date.now() < gdriveTokenExpiry;
+  if (connected) {
+    icon.className = 'bi bi-cloud-check-fill text-success';
+    text.textContent = 'Drive 연결됨';
+    text.className = 'text-success';
+    btn.style.display = 'none';
+  } else {
+    icon.className = 'bi bi-cloud-slash text-danger';
+    text.textContent = 'Drive 미연결';
+    text.className = 'text-danger';
+    btn.style.display = 'inline-block';
+  }
+  // 설정 페이지의 gdriveStatus도 업데이트
+  const gds = document.getElementById('gdriveStatus');
+  if (gds) {
+    if (connected) { gds.textContent = '✅ 연결됨'; gds.style.color = '#059669'; }
+    else { gds.textContent = '연결 안 됨'; gds.style.color = ''; }
+  }
+}
+
+// 5초마다 상단바 상태 갱신
+setInterval(updateGdriveTopStatus, 5000);
+
 // 로그인 직후 자동 Google Drive 연결
 function autoConnectGoogleDrive() {
   if (gdriveAccessToken && Date.now() < gdriveTokenExpiry) return; // 이미 연결됨
@@ -3429,15 +3486,16 @@ function autoConnectGoogleDrive() {
   connectGoogleDrive();
 }
 
-// 토큰 만료 감시 (50분마다 체크, 만료되면 자동 재연결)
+// 토큰 만료 감시 (5분마다 체크, 만료되면 자동 재연결)
 setInterval(() => {
   if (!gdriveAccessToken) return;
   if (Date.now() >= gdriveTokenExpiry) {
     console.log('Google Drive 토큰 만료 → 자동 재연결');
     gdriveAccessToken = null;
+    updateGdriveTopStatus();
     autoConnectGoogleDrive();
   }
-}, 60000 * 5); // 5분마다 체크
+}, 60000 * 5);
 
 function connectGoogleDrive() {
   try {
@@ -3451,8 +3509,7 @@ function connectGoogleDrive() {
         }
         gdriveAccessToken = resp.access_token;
         gdriveTokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
-        const statusEl = document.getElementById('gdriveStatus');
-        if (statusEl) { statusEl.textContent = '✅ 연결됨'; statusEl.style.color = '#059669'; }
+        updateGdriveTopStatus();
         showToast('Google Drive 연결 완료! 결재 승인 시 자동 저장됩니다.', 'success');
       }
     });
