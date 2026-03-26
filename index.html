@@ -137,6 +137,8 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
 .approval-step.completed { border-color:var(--success); background:#f0fdf8; }
 .approval-step.current { border-color:var(--warning); background:#fffbeb; }
 .approval-step.rejected { border-color:var(--danger); background:#fef2f2; }
+.preview-row td { border-top:none !important; }
+.preview-row:hover td { background:#f8fafa !important; }
 .approval-stamp-table { border-collapse:collapse; font-size:11px; }
 .approval-stamp-table th,.approval-stamp-table td { border:1px solid #8ababa; padding:3px 8px; text-align:center; min-width:65px; }
 .approval-stamp-table th { background:#dff0f0; font-weight:600; color:var(--primary-dark); }
@@ -482,8 +484,8 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <th class="sortable-th" onclick="sortTable('pending','creator_name')">작성자 <i class="bi bi-chevron-expand sort-icon"></i></th>
             <th class="sortable-th" onclick="sortTable('pending','created_at')">요청일 <i class="bi bi-chevron-expand sort-icon"></i></th>
             <th class="sortable-th" onclick="sortTable('pending','status')">상태 <i class="bi bi-chevron-expand sort-icon"></i></th>
-            <th></th></tr></thead>
-          <tbody id="pendingApprovalTbody"><tr><td colspan="8" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr></tbody></table>
+            <th style="width:90px;text-align:center">보기</th></tr></thead>
+          <tbody id="pendingApprovalTbody"><tr><td colspan="9" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr></tbody></table>
         </div>
         <div id="paging-pending" class="paging-wrap"></div>
       </div>
@@ -510,8 +512,8 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <th class="sortable-th" onclick="sortTable('mydocs','creator_name')">작성자 <i class="bi bi-chevron-expand sort-icon"></i></th>
             <th class="sortable-th" onclick="sortTable('mydocs','created_at')">작성일 <i class="bi bi-chevron-expand sort-icon"></i></th>
             <th class="sortable-th" onclick="sortTable('mydocs','status')">상태 <i class="bi bi-chevron-expand sort-icon"></i></th>
-            <th></th></tr></thead>
-          <tbody id="myDocsTbody"><tr><td colspan="8" class="text-center text-muted py-4">문서가 없습니다.</td></tr></tbody></table>
+            <th style="width:90px;text-align:center">보기</th></tr></thead>
+          <tbody id="myDocsTbody"><tr><td colspan="9" class="text-center text-muted py-4">문서가 없습니다.</td></tr></tbody></table>
         </div>
         <div id="paging-mydocs" class="paging-wrap"></div>
       </div>
@@ -541,8 +543,8 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <th class="sortable-th" onclick="sortTable('search','creator_name')">작성자 <i class="bi bi-chevron-expand sort-icon"></i></th>
             <th class="sortable-th" onclick="sortTable('search','created_at')">작성일 <i class="bi bi-chevron-expand sort-icon"></i></th>
             <th class="sortable-th" onclick="sortTable('search','status')">상태 <i class="bi bi-chevron-expand sort-icon"></i></th>
-            <th></th></tr></thead>
-          <tbody id="searchResultTbody"><tr><td colspan="8" class="text-center text-muted py-4">로딩 중...</td></tr></tbody></table>
+            <th style="width:90px;text-align:center">보기</th></tr></thead>
+          <tbody id="searchResultTbody"><tr><td colspan="9" class="text-center text-muted py-4">로딩 중...</td></tr></tbody></table>
         </div>
         <div id="paging-search" class="paging-wrap"></div>
       </div>
@@ -2481,7 +2483,7 @@ function renderPendingTable(docs, skipStore, page) {
     _tableData.pending = docs;
     _currentPage.pending = 1;
   }
-  if (!docs.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr>'; renderPaging('pending', 0); return; }
+  if (!docs.length) { tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">결재 대기 문서가 없습니다.</td></tr>'; renderPaging('pending', 0); return; }
   const pg = page || _currentPage.pending;
   const start = (pg - 1) * PAGE_SIZE, end = start + PAGE_SIZE;
   const pageData = docs.slice(start, end);
@@ -2495,7 +2497,15 @@ function renderPendingTable(docs, skipStore, page) {
     <td>${esc(d.creator_name)}</td>
     <td>${formatDate(d.created_at)}</td>
     <td>${statusBadge(d.status)}</td>
-    <td><button class="btn btn-sm btn-outline-primary" onclick="viewDocument('${d.id}')"><i class="bi bi-eye"></i></button></td>
+    <td class="text-center" style="white-space:nowrap">
+      <button class="btn btn-sm btn-outline-secondary me-1" onclick="togglePreview('${d.id}',this)" title="미리보기"><i class="bi bi-chevron-down"></i></button>
+      <button class="btn btn-sm btn-outline-primary" onclick="viewDocument('${d.id}')" title="상세보기"><i class="bi bi-eye"></i></button>
+    </td>
+  </tr>
+  <tr class="preview-row" id="preview-${d.id}" style="display:none">
+    <td colspan="9" style="padding:0;background:#f8fafa">
+      <div class="p-3" id="previewContent-${d.id}"><div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm me-2"></div>미리보기 로딩 중...</div></div>
+    </td>
   </tr>`;
   }).join('');
   renderPaging('pending', docs.length);
@@ -2620,7 +2630,8 @@ function renderDocTable(tbodyId, docs, showCreator, skipStore, page) {
   const selectAllCb = document.getElementById('selectAll-' + tbodyId);
   if (selectAllCb) { selectAllCb.style.display = ''; selectAllCb.checked = false; selectAllCb.indeterminate = false; }
   updateBulkDeleteBar(tbodyId);
-  if (!docs.length) { tbody.innerHTML = `<tr><td colspan="${colSpan}" class="text-center text-muted py-4">문서가 없습니다.</td></tr>`; renderPaging(pagingId, 0); return; }
+  const colSpan2 = 9;
+  if (!docs.length) { tbody.innerHTML = `<tr><td colspan="${colSpan2}" class="text-center text-muted py-4">문서가 없습니다.</td></tr>`; renderPaging(pagingId, 0); return; }
   const pg = page || _currentPage[pagingId];
   const start = (pg - 1) * PAGE_SIZE, end = start + PAGE_SIZE;
   const pageData = docs.slice(start, end);
@@ -2639,7 +2650,15 @@ function renderDocTable(tbodyId, docs, showCreator, skipStore, page) {
       ${showCreator ? '<td>'+esc(d.creator_name)+'</td>' : ''}
       <td>${formatDate(d.created_at)}</td>
       <td>${statusBadge(d.status)}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="viewDocument('${d.id}')"><i class="bi bi-eye"></i></button></td>
+      <td class="text-center" style="white-space:nowrap">
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="togglePreview('${tbodyId}__${d.id}',this)" title="미리보기"><i class="bi bi-chevron-down"></i></button>
+        <button class="btn btn-sm btn-outline-primary" onclick="viewDocument('${d.id}')" title="상세보기"><i class="bi bi-eye"></i></button>
+      </td>
+    </tr>
+    <tr class="preview-row" id="preview-${tbodyId}__${d.id}" style="display:none">
+      <td colspan="${colSpan2}" style="padding:0;background:#f8fafa">
+        <div class="p-3" id="previewContent-${tbodyId}__${d.id}"><div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm me-2"></div>미리보기 로딩 중...</div></div>
+      </td>
     </tr>`;
   }).join('');
   renderPaging(pagingId, docs.length);
@@ -3149,6 +3168,73 @@ function readFileAsBase64(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+// ============================================================
+// 미리보기 (아코디언)
+// ============================================================
+async function togglePreview(previewId, btn) {
+  const row = document.getElementById('preview-' + previewId);
+  if (!row) return;
+  // previewId에서 실제 docId 추출 (tbodyId__docId 또는 docId)
+  const docId = previewId.includes('__') ? previewId.split('__').slice(1).join('__') : previewId;
+  const icon = btn.querySelector('i');
+  if (row.style.display !== 'none') {
+    // 닫기
+    row.style.display = 'none';
+    if (icon) { icon.className = 'bi bi-chevron-down'; }
+    return;
+  }
+  // 열기
+  row.style.display = '';
+  if (icon) { icon.className = 'bi bi-chevron-up'; }
+  const contentEl = document.getElementById('previewContent-' + previewId) || document.getElementById('previewContent-' + docId);
+  // 이미 로드된 경우 스킵
+  if (contentEl.dataset.loaded === 'true') return;
+  try {
+    const result = await api('doc_detail', { doc_id: docId });
+    if (!result.success) { contentEl.innerHTML = '<div class="text-danger p-2">로드 실패: ' + esc(result.error) + '</div>'; return; }
+    const doc = result.document;
+    const approvals = result.approvals || [];
+    // 결재 진행 현황
+    let stepsHtml = '<div class="d-flex flex-wrap gap-2 mb-3">';
+    approvals.forEach((a, i) => {
+      const statusClass = a.status === 'approved' ? 'completed' : a.status === 'rejected' ? 'rejected' : a.status === 'pending' ? 'current' : '';
+      const statusIcon = a.status === 'approved' ? '<i class="bi bi-check-circle-fill text-success"></i>' : a.status === 'rejected' ? '<i class="bi bi-x-circle-fill text-danger"></i>' : '<i class="bi bi-clock text-warning"></i>';
+      stepsHtml += `<div class="approval-step ${statusClass}" style="padding:6px 12px;border-radius:8px;border:1px solid #ddd;font-size:12px">
+        ${statusIcon} <strong>${esc(a.step_name)}</strong><br>
+        <span class="text-muted">${esc(a.approver_name)}${a.approver_dept ? ' ('+esc(a.approver_dept)+')' : ''}</span>
+        ${a.signed_at ? '<br><small class="text-muted">' + formatDate(a.signed_at) + '</small>' : ''}
+      </div>`;
+      if (i < approvals.length - 1) stepsHtml += '<span class="align-self-center text-muted">→</span>';
+    });
+    stepsHtml += '</div>';
+    // 문서 미리보기 (PDF iframe 또는 정보)
+    let filePreview = '';
+    if (doc.file_url) {
+      if ((doc.file_type || doc.file_name || '').match(/pdf/i)) {
+        filePreview = `<div style="border:1px solid #ddd;border-radius:8px;overflow:hidden;max-height:400px">
+          <iframe src="${doc.file_url}" style="width:100%;height:400px;border:none"></iframe></div>`;
+      } else {
+        filePreview = `<div class="text-muted p-3 text-center" style="border:1px solid #ddd;border-radius:8px">
+          <i class="bi bi-file-earmark-spreadsheet" style="font-size:32px;color:var(--primary)"></i>
+          <p class="mt-2 mb-0">${esc(doc.file_name || '파일')}</p></div>`;
+      }
+    }
+    contentEl.innerHTML = `
+      <div class="row g-3">
+        <div class="col-md-5">
+          <div class="mb-2"><strong>문서번호:</strong> ${esc(doc.doc_number)}</div>
+          <div class="mb-2"><strong>작성자:</strong> ${esc(doc.creator_name)} · ${formatDate(doc.created_at)}</div>
+          <div class="mb-2"><strong>상태:</strong> ${statusBadge(doc.status)}</div>
+          <div class="mt-3">${stepsHtml}</div>
+        </div>
+        <div class="col-md-7">${filePreview}</div>
+      </div>`;
+    contentEl.dataset.loaded = 'true';
+  } catch(ex) {
+    contentEl.innerHTML = '<div class="text-danger p-2">로드 오류: ' + esc(ex.message) + '</div>';
+  }
 }
 
 // ============================================================
