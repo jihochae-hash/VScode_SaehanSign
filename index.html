@@ -2400,7 +2400,7 @@ async function loadPendingApproval() {
 // 테이블 정렬 기능
 // ============================================================
 const _tableData = { pending: [], mydocs: [], search: [], users: [] };
-const _sortState = { pending: { key: null, dir: 'asc' }, mydocs: { key: null, dir: 'asc' }, search: { key: null, dir: 'asc' }, users: { key: null, dir: 'asc' } };
+const _sortState = { pending: { key: 'created_at', dir: 'desc' }, mydocs: { key: 'created_at', dir: 'desc' }, search: { key: 'created_at', dir: 'desc' }, users: { key: null, dir: 'asc' } };
 const PAGE_SIZE = 30;
 const _currentPage = { pending: 1, mydocs: 1, search: 1 };
 
@@ -2612,6 +2612,8 @@ function renderDocTable(tbodyId, docs, showCreator, skipStore, page) {
   const colSpan = 8;
   const pagingId = tbodyId === 'myDocsTbody' ? 'mydocs' : 'search';
   if (!skipStore) {
+    // 기본 정렬: 최신 문서 위로 (created_at 내림차순)
+    docs.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     if (tbodyId === 'myDocsTbody') { _tableData.mydocs = docs; _currentPage.mydocs = 1; }
     else if (tbodyId === 'searchResultTbody') { _tableData.search = docs; _currentPage.search = 1; }
   }
