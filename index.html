@@ -2085,31 +2085,45 @@ async function fb_settingsUpdate(data) {
 // ============================================================
 async function fb_dashboard() {
   const uid = auth.currentUser ? auth.currentUser.uid : '';
-  // 문서 조회 (삭제된 문서 클라이언트에서 필터 — 인덱스 불필요)
-  const docSnap = await db.collection('documents').get();
-  const docs = docSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.status !== 'deleted');
-  // 결재이력 조회 (내 결재 대기)
-  const appSnap = await db.collection('approvals').where('approver_id','==',uid).where('status','==','pending').get();
-  const myPendingApprovals = appSnap.docs.map(d => d.data());
-  const pendingDocIds = [...new Set(myPendingApprovals.map(a => a.doc_id))];
-  // 내가 작성한 문서
-  const myDocs = docs.filter(d => d.creator_id === uid);
-  // 결재 대기 문서 목록 (내가 결재해야 할)
-  const pendingDocs = docs.filter(d => pendingDocIds.includes(d.id) && d.status === 'pending');
-  // 최근 문서
-  const recentDocs = [...docs].sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10);
-  return {
-    success: true,
-    stats: {
-      pending_my_approval: pendingDocs.length,
-      my_pending: myDocs.filter(d => d.status === 'pending').length,
-      my_approved: myDocs.filter(d => d.status === 'approved').length,
-      my_rejected: myDocs.filter(d => d.status === 'rejected').length,
-      total: docs.length
-    },
-    pending_docs: pendingDocs.slice(0, 10),
-    recent_docs: recentDocs
-  };
+  if (!uid) return { success:true, stats:{ pending_my_approval:0, my_pending:0, my_approved:0, my_rejected:0, total:0 }, pending_docs:[], recent_docs:[] };
+  try {
+    // 모든 문서 조회 (삭제 제외)
+    const docSnap = await db.collection('documents').get();
+    const docs = docSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.status !== 'deleted');
+
+    // 내 결재 대기 (step_order > 0인 것만 — 작성자 자동 서명 제외)
+    const appSnap = await db.collection('approvals').where('approver_id','==',uid).get();
+    const myApprovals = appSnap.docs.map(d => d.data());
+    const myPendingDocIds = new Set();
+    myApprovals.forEach(a => {
+      if ((a.step_order || 0) > 0 && a.status === 'pending') myPendingDocIds.add(a.doc_id);
+    });
+
+    // 내가 작성한 문서
+    const myDocs = docs.filter(d => d.creator_id === uid);
+    // 결재 대기 문서
+    const pendingDocs = docs.filter(d => myPendingDocIds.has(d.id) && d.status === 'pending');
+    // 최근 문서 (내가 관련된)
+    const myRelatedDocIds = new Set([...myDocs.map(d=>d.id), ...myApprovals.map(a=>a.doc_id)]);
+    const recentDocs = docs.filter(d => myRelatedDocIds.has(d.id))
+      .sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0)).slice(0, 10);
+
+    return {
+      success: true,
+      stats: {
+        pending_my_approval: pendingDocs.length,
+        my_pending: myDocs.filter(d => d.status === 'pending').length,
+        my_approved: myDocs.filter(d => d.status === 'approved').length,
+        my_rejected: myDocs.filter(d => d.status === 'rejected').length,
+        total: docs.length
+      },
+      pending_docs: pendingDocs.slice(0, 10),
+      recent_docs: recentDocs
+    };
+  } catch(ex) {
+    console.error('[Dashboard error]', ex);
+    return { success:true, stats:{ pending_my_approval:0, my_pending:0, my_approved:0, my_rejected:0, total:0 }, pending_docs:[], recent_docs:[] };
+  }
 }
 
 // ============================================================
@@ -2344,15 +2358,11 @@ function _renderDashboard(result) {
 }
 
 async function loadDashboard() {
-  // 캐시된 데이터 즉시 표시 (체감 속도 개선)
-  const cached = lsGet('dashboard');
-  if (cached) _renderDashboard(cached);
   try {
     const result = await api('dashboard', {});
-    if (!result.success) return;
-    lsPut('dashboard', result);
+    if (!result || !result.success) { console.warn('[Dashboard] 로드 실패:', result); return; }
     _renderDashboard(result);
-  } catch(ex) { console.error(ex); }
+  } catch(ex) { console.error('[Dashboard load error]', ex); }
 }
 
 function renderDashPending(docs) {
