@@ -522,11 +522,12 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
       <div id="page-search" class="page-section" style="display:none">
         <div class="card mb-3"><div class="card-body py-2">
           <div class="row g-2 align-items-end">
-            <div class="col-md-4"><input type="text" class="form-control" id="searchQuery" placeholder="문서번호, 제목, 작성자 검색"></div>
-            <div class="col-md-2"><select class="form-select" id="searchStatus"><option value="">전체 상태</option><option value="pending">진행중</option><option value="approved">승인</option><option value="rejected">반려</option><option value="draft">임시저장</option></select></div>
+            <div class="col-md-3"><input type="text" class="form-control" id="searchQuery" placeholder="문서번호, 제목, 작성자, 제조번호 등" onkeydown="if(event.key==='Enter')doSearch()"></div>
+            <div class="col-md-2"><select class="form-select" id="searchCategory" onchange="doSearch()" title="문서 종류"><option value="">전체 종류</option></select></div>
+            <div class="col-md-2"><select class="form-select" id="searchStatus" onchange="doSearch()"><option value="">전체 상태</option><option value="pending">진행중</option><option value="approved">승인</option><option value="rejected">반려</option><option value="draft">임시저장</option></select></div>
             <div class="col-md-2"><input type="date" class="form-control" id="searchDateFrom"></div>
             <div class="col-md-2"><input type="date" class="form-control" id="searchDateTo"></div>
-            <div class="col-md-2"><button class="btn btn-primary w-100" onclick="doSearch()"><i class="bi bi-search me-1"></i>검색</button></div>
+            <div class="col-md-1"><button class="btn btn-primary w-100" onclick="doSearch()" title="검색"><i class="bi bi-search"></i></button></div>
           </div>
         </div></div>
         <div id="bulkBar-searchResultTbody" style="display:none" class="d-flex align-items-center gap-2 mb-2 px-1">
@@ -1646,11 +1647,33 @@ async function fb_docFile(data) {
   return { success:true, data:b64, name:doc.file_name||'document', mime:doc.file_type==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
 }
 
+// 검색용 정규화: 소문자화 + 한글/영문/숫자만 남기고 모든 기호·공백 제거
+// → "QA-2026/03_아사이베리" 와 "qa 2026 03 아사이" 가 동일하게 매칭됨
+function fb_normalizeSearch(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+}
+
 async function fb_docSearch(data) {
   const snap = await db.collection('documents').where('status','!=','deleted').get();
   let docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-  const q = (data.query||'').toLowerCase();
-  if(q) docs = docs.filter(d => (d.title||'').toLowerCase().includes(q) || (d.doc_number||'').toLowerCase().includes(q) || (d.creator_name||'').toLowerCase().includes(q) || (d.category||'').toLowerCase().includes(q));
+  // 문서 종류 필터 (지정 시 해당 종류만)
+  if(data.category) docs = docs.filter(d => (d.category||'') === data.category);
+  // 검색어: 기호·공백 무시 + 토큰 단위 부분일치(AND, 순서 무관)
+  const rawQ = (data.query||'').trim();
+  if(rawQ) {
+    const tokens = rawQ.toLowerCase().split(/\s+/).map(fb_normalizeSearch).filter(Boolean);
+    if(tokens.length) {
+      docs = docs.filter(d => {
+        // 문서 종류 코드뿐 아니라 표시명(label)까지 검색 대상에 포함
+        const catLabel = (DOC_CATEGORIES.find(c => c.value === d.category) || {}).label || '';
+        const haystack = fb_normalizeSearch([
+          d.title, d.doc_number, d.creator_name, d.category, catLabel,
+          d.product_code, d.file_name
+        ].join(' '));
+        return tokens.every(t => haystack.includes(t));
+      });
+    }
+  }
   if(data.status) docs = docs.filter(d => d.status===data.status);
   if(data.date_from) docs = docs.filter(d => d.created_at >= data.date_from);
   if(data.date_to) docs = docs.filter(d => d.created_at <= data.date_to+'T23:59:59');
@@ -2607,7 +2630,18 @@ function filterMyDocs(status, btn) {
   renderDocTable('myDocsTbody', docs, true);
 }
 
+// 검색 화면의 "문서 종류" 필터 드롭다운 채우기 (DOC_CATEGORIES 기반)
+function populateSearchCategorySelect() {
+  const sel = document.getElementById('searchCategory');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">전체 종류</option>' +
+    DOC_CATEGORIES.map(c => `<option value="${esc(c.value)}">${esc(c.label)}</option>`).join('');
+  sel.value = cur;
+}
+
 async function loadAllDocsToSearch() {
+  populateSearchCategorySelect();
   const cached = lsGet('all_docs');
   if (cached) renderDocTable('searchResultTbody', cached, true);
   try {
@@ -2820,6 +2854,7 @@ async function doSearch() {
   try {
     const result = await api('doc_search', {
       query: document.getElementById('searchQuery').value.trim(),
+      category: document.getElementById('searchCategory').value,
       status: document.getElementById('searchStatus').value,
       date_from: document.getElementById('searchDateFrom').value,
       date_to: document.getElementById('searchDateTo').value
