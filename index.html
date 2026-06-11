@@ -902,6 +902,11 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
                 <small class="d-block text-muted">활성화 시 작성자가 1단계 서명 후 결재자에게 전달됩니다.</small>
               </label>
             </div>
+            <div class="mb-3" style="max-width:320px">
+              <label class="form-label" style="font-size:12px">작성칸(작성자 서명칸) 제목</label>
+              <input type="text" class="form-control form-control-sm" id="defaultAuthorStepName" value="작성" placeholder="작성">
+              <small class="text-muted" style="font-size:11px">작성자 서명 칸에 표시될 이름 (예: 작성, 기안). 위 자동 포함이 켜진 경우 사용됩니다.</small>
+            </div>
             <p class="text-muted" style="font-size:12px">새 문서 작성 시 자동으로 적용될 기본 결재선입니다.</p>
             <div id="defaultApprovalSteps" class="mb-3"></div>
             <div class="d-flex gap-2">
@@ -919,6 +924,11 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <div class="mb-3" style="max-width:320px">
               <label class="form-label" style="font-size:12px">문서 종류 선택</label>
               <select class="form-select form-select-sm" id="catApprovalCategory" onchange="renderCategoryApprovalEditor()"></select>
+            </div>
+            <div class="mb-3" style="max-width:320px">
+              <label class="form-label" style="font-size:12px">작성칸(작성자 서명칸) 제목</label>
+              <input type="text" class="form-control form-control-sm" id="catAuthorStepName" placeholder="작성">
+              <small class="text-muted" style="font-size:11px">비워두면 기본값(위 작성칸 제목)이 사용됩니다.</small>
             </div>
             <div id="catApprovalSteps" class="mb-3"></div>
             <div class="d-flex gap-2">
@@ -1147,6 +1157,8 @@ let BOM_DATA = [];
 let AUTHOR_SIGN_FIRST = false;
 let DOC_TYPE_PATHS = {};
 let CATEGORY_APPROVAL_CHAINS = {}; // 문서 종류별 결재선 { '<종류코드>': [{name, approver_id, approver_name}, ...] }
+let AUTHOR_STEP_NAME = '작성'; // 기본 작성칸(작성자 서명칸) 제목
+let CATEGORY_AUTHOR_LABELS = {}; // 문서 종류별 작성칸 제목 { '<종류코드>': '작성' }
 let STAMP_DISPLAY = { dept: true, name: true, position: true, date: true };
 let bomSearchTimer = null;
 
@@ -1614,7 +1626,7 @@ async function fb_docCreate(data) {
       } catch(e) {}
       const aRef = db.collection('approvals').doc();
       batch.set(aRef, {
-        doc_id:docRef.id, step_order:0, step_name:'작성', approver_id:uid,
+        doc_id:docRef.id, step_order:0, step_name:(data.author_step_name||'작성'), approver_id:uid,
         approver_name:CURRENT_USER.name||'', approver_dept:CURRENT_USER.department||'',
         approver_position:CURRENT_USER.position||'', status:'approved', signed_at:fb_now(),
         comment:'', signature_applied:'Y', signature_file_id:authorSigUrl
@@ -3122,12 +3134,14 @@ function renumberSteps() {
 async function loadDefaultApprovalChain() {
   const container = document.getElementById('approvalStepsCreate');
   container.innerHTML = '';
-  // 작성자 서명 자동 포함 시 첫 줄에 작성자 표시
+  // 작성자 서명 자동 포함 시 첫 줄에 작성자 표시 (작성칸 제목 수정 가능)
   if (AUTHOR_SIGN_FIRST && CURRENT_USER) {
+    const cat = (document.getElementById('newDocCategory') || {}).value || '';
+    const authorLabel = CATEGORY_AUTHOR_LABELS[cat] || AUTHOR_STEP_NAME || '작성';
     const authorDiv = document.createElement('div');
     authorDiv.className = 'row g-2 align-items-end mb-2 author-sign-row';
     authorDiv.innerHTML = `
-      <div class="col-md-2"><label class="form-label" style="font-size:12px">1단계</label><input type="text" class="form-control form-control-sm bg-light" value="작성" readonly></div>
+      <div class="col-md-2"><label class="form-label" style="font-size:12px">1단계</label><input type="text" class="form-control form-control-sm author-step-name" value="${esc(authorLabel)}" title="작성칸 제목"></div>
       <div class="col-md-5"><input type="text" class="form-control form-control-sm bg-light" value="${esc(CURRENT_USER.name)} (${esc(CURRENT_USER.department || '')} ${esc(CURRENT_USER.position || '')})" readonly></div>
       <div class="col-auto"><span class="badge bg-info" style="font-size:11px"><i class="bi bi-pen me-1"></i>자동 서명</span></div>`;
     container.appendChild(authorDiv);
@@ -3141,6 +3155,9 @@ async function loadDefaultApprovalChain() {
       let catChains = {};
       try { catChains = JSON.parse(s.category_approval_chains || '{}'); } catch(e) {}
       CATEGORY_APPROVAL_CHAINS = catChains;
+      // 작성칸 제목 글로벌 갱신 (다음 종류 변경 시 반영)
+      AUTHOR_STEP_NAME = s.author_step_name || '작성';
+      try { CATEGORY_AUTHOR_LABELS = JSON.parse(s.category_author_labels || '{}'); } catch(e) {}
       let chain = catChains[category];
       // 2) 종류별 결재선이 없으면 기본 결재선으로 폴백
       if (!chain || !chain.length) {
@@ -3156,6 +3173,9 @@ async function loadDefaultApprovalChain() {
 }
 
 async function submitNewDocument() {
+  // 작성칸(작성자 서명칸) 제목 — 사용자가 수정한 값 사용
+  const authorStepEl = document.querySelector('#approvalStepsCreate .author-step-name');
+  const authorStepName = (authorStepEl && authorStepEl.value.trim()) || AUTHOR_STEP_NAME || '작성';
   // 결재선 공통 검증
   const steps = [];
   document.querySelectorAll('#approvalStepsCreate .approval-step-row').forEach(row => {
@@ -3190,7 +3210,7 @@ async function submitNewDocument() {
       const prodName = editedNames[fileIdx] || extractProductName(file.name);
       const title = prodName + (docTypeLabel ? ' - ' + docTypeLabel : '');
       const fileData = await readFileAsBase64(file);
-      const result = await api('doc_create', { title, category, product_code: '', save_path: savePath, file_data: fileData, file_name: file.name, approval_steps: JSON.stringify(steps), include_author_signature: AUTHOR_SIGN_FIRST });
+      const result = await api('doc_create', { title, category, product_code: '', save_path: savePath, file_data: fileData, file_name: file.name, approval_steps: JSON.stringify(steps), include_author_signature: AUTHOR_SIGN_FIRST, author_step_name: authorStepName });
       if (!result.success) throw new Error(result.error);
       await api('approval_submit', { doc_id: result.id });
     }
@@ -3236,7 +3256,7 @@ async function submitNewDocument() {
   (async () => {
     try {
       const fileData = await readFileAsBase64(currentDocFile);
-      const result = await api('doc_create', { title, category, product_code: productCode, save_path: savePath, file_data: fileData, file_name: currentDocFile.name, approval_steps: JSON.stringify(steps), include_author_signature: AUTHOR_SIGN_FIRST });
+      const result = await api('doc_create', { title, category, product_code: productCode, save_path: savePath, file_data: fileData, file_name: currentDocFile.name, approval_steps: JSON.stringify(steps), include_author_signature: AUTHOR_SIGN_FIRST, author_step_name: authorStepName });
       if (!result.success) { endSync(); showToast('업로드 실패: ' + result.error, 'danger'); return; }
       const submitResult = await api('approval_submit', { doc_id: result.id });
       endSync();
@@ -3450,7 +3470,7 @@ function renderApprovalStampTable(approvals, doc) {
 
   // 작성자 칸이 결재이력에 없으면 앞에 추가
   let steps = [...approvals];
-  const hasAuthorStep = steps.length > 0 && steps[0].step_name === '작성';
+  const hasAuthorStep = steps.length > 0 && Number(steps[0].step_order) === 0;
   if (!hasAuthorStep && doc) {
     // 현재 사용자 목록에서 작성자 서명 base64 찾기 (approvals에서 가져올 수 없으므로 doc info 사용)
     const authorStep = {
@@ -3997,6 +4017,11 @@ async function loadSettings() {
     AUTHOR_SIGN_FIRST = s.author_sign_first === 'true';
     const asf = document.getElementById('authorSignFirst');
     if (asf) asf.checked = AUTHOR_SIGN_FIRST;
+    // 작성칸 제목 로드
+    AUTHOR_STEP_NAME = s.author_step_name || '작성';
+    const dasn = document.getElementById('defaultAuthorStepName');
+    if (dasn) dasn.value = AUTHOR_STEP_NAME;
+    try { CATEGORY_AUTHOR_LABELS = JSON.parse(s.category_author_labels || '{}'); } catch(e) { CATEGORY_AUTHOR_LABELS = {}; }
     // 결재란 표시 항목 로드
     if (s.stamp_display) {
       try { STAMP_DISPLAY = JSON.parse(s.stamp_display); } catch(e) {}
@@ -4057,7 +4082,8 @@ async function saveDefaultApprovalChain() {
   try {
     const authorSign = document.getElementById('authorSignFirst');
     AUTHOR_SIGN_FIRST = authorSign ? authorSign.checked : false;
-    const result = await api('settings_update', { settings: { default_approval_chain: JSON.stringify(steps), author_sign_first: AUTHOR_SIGN_FIRST ? 'true' : 'false' } });
+    AUTHOR_STEP_NAME = ((document.getElementById('defaultAuthorStepName') || {}).value || '').trim() || '작성';
+    const result = await api('settings_update', { settings: { default_approval_chain: JSON.stringify(steps), author_sign_first: AUTHOR_SIGN_FIRST ? 'true' : 'false', author_step_name: AUTHOR_STEP_NAME } });
     hideLoading();
     if (result.success) showToast('기본 결재선이 저장되었습니다.');
     else showToast(result.error, 'danger');
@@ -4080,6 +4106,9 @@ function renderCategoryApprovalEditor() {
   if (!container) return;
   container.innerHTML = '';
   const cat = document.getElementById('catApprovalCategory').value;
+  // 작성칸 제목 입력값 채우기 (종류별 값 없으면 비워서 기본값 사용 표시)
+  const authorInput = document.getElementById('catAuthorStepName');
+  if (authorInput) authorInput.value = CATEGORY_AUTHOR_LABELS[cat] || '';
   const chain = (CATEGORY_APPROVAL_CHAINS && CATEGORY_APPROVAL_CHAINS[cat]) || [];
   if (!chain.length) {
     container.innerHTML = '<div class="alert alert-light border py-2 mb-2" style="font-size:12px"><i class="bi bi-info-circle me-1"></i>이 종류는 전용 결재선이 없어 <b>기본 결재선</b>이 적용됩니다. 아래에서 단계를 추가해 전용 결재선을 설정하세요.</div>';
@@ -4131,9 +4160,16 @@ async function saveCategoryApprovalChain() {
   } else {
     CATEGORY_APPROVAL_CHAINS[cat] = steps;
   }
+  // 작성칸 제목: 값이 있으면 종류별로 저장, 비우면 기본값 사용(삭제)
+  const authorLabel = ((document.getElementById('catAuthorStepName') || {}).value || '').trim();
+  if (authorLabel) CATEGORY_AUTHOR_LABELS[cat] = authorLabel;
+  else delete CATEGORY_AUTHOR_LABELS[cat];
   showLoading('저장 중...');
   try {
-    const result = await api('settings_update', { settings: { category_approval_chains: JSON.stringify(CATEGORY_APPROVAL_CHAINS) } });
+    const result = await api('settings_update', { settings: {
+      category_approval_chains: JSON.stringify(CATEGORY_APPROVAL_CHAINS),
+      category_author_labels: JSON.stringify(CATEGORY_AUTHOR_LABELS)
+    } });
     hideLoading();
     if (result.success) { showToast('해당 문서 종류의 결재선이 저장되었습니다.'); renderCategoryApprovalEditor(); }
     else showToast(result.error, 'danger');
@@ -4145,9 +4181,13 @@ async function resetCategoryApprovalChain() {
   if (!cat) return;
   if (!confirm('이 문서 종류의 전용 결재선을 삭제하고 기본 결재선을 사용하시겠습니까?')) return;
   delete CATEGORY_APPROVAL_CHAINS[cat];
+  delete CATEGORY_AUTHOR_LABELS[cat];
   showLoading('저장 중...');
   try {
-    const result = await api('settings_update', { settings: { category_approval_chains: JSON.stringify(CATEGORY_APPROVAL_CHAINS) } });
+    const result = await api('settings_update', { settings: {
+      category_approval_chains: JSON.stringify(CATEGORY_APPROVAL_CHAINS),
+      category_author_labels: JSON.stringify(CATEGORY_AUTHOR_LABELS)
+    } });
     hideLoading();
     if (result.success) { showToast('기본 결재선을 사용하도록 변경되었습니다.'); renderCategoryApprovalEditor(); }
     else showToast(result.error, 'danger');
@@ -4398,6 +4438,8 @@ async function loadCategoriesFromServer() {
       AUTHOR_SIGN_FIRST = s.author_sign_first === 'true';
       try { DOC_TYPE_PATHS = JSON.parse(s.doc_type_paths || '{}'); } catch(e) {}
       try { CATEGORY_APPROVAL_CHAINS = JSON.parse(s.category_approval_chains || '{}'); } catch(e) {}
+      AUTHOR_STEP_NAME = s.author_step_name || '작성';
+      try { CATEGORY_AUTHOR_LABELS = JSON.parse(s.category_author_labels || '{}'); } catch(e) {}
       if (s.stamp_display) { try { STAMP_DISPLAY = JSON.parse(s.stamp_display); } catch(e) {} }
       if (s.doc_num_format) { try { DOC_NUM_FORMAT = JSON.parse(s.doc_num_format); } catch(e) {} }
     }
