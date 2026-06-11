@@ -4452,9 +4452,23 @@ async function saveCategorySettings() {
   try {
     const result = await api('settings_update', { settings: { doc_categories: JSON.stringify(DOC_CATEGORIES) } });
     hideLoading();
-    if (result.success) showToast('문서 종류 항목이 저장되었습니다.');
+    if (result.success) {
+      showToast('문서 종류 항목이 저장되었습니다.');
+      // 새/변경된 문서 종류를 의존 설정 목록에도 즉시 반영
+      refreshCategoryDependentUI();
+    }
     else showToast(result.error, 'danger');
   } catch(ex) { hideLoading(); }
+}
+
+// 문서 종류 목록 변경 시 이를 참조하는 설정 UI들을 다시 그림
+function refreshCategoryDependentUI() {
+  // 문서 종류별 PDF 저장 경로
+  if (document.getElementById('docTypePathList')) renderDocTypePathList();
+  // 문서 종류별 결재선 설정 (선택 드롭다운 + 편집기)
+  if (document.getElementById('catApprovalCategory')) loadCategoryApprovalUI();
+  // 검색 화면의 종류 필터
+  if (document.getElementById('searchCategory')) populateSearchCategorySelect();
 }
 
 function populateCategorySelect(selectId, selectedValue) {
