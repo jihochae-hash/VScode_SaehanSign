@@ -381,7 +381,7 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <div class="row g-3 mb-4">
               <div class="col-md-4">
                 <label class="form-label fw-semibold">문서 종류 <span class="text-danger">*</span></label>
-                <select class="form-select" id="newDocCategory" onchange="updateAutoDocTitle()">
+                <select class="form-select" id="newDocCategory" onchange="updateAutoDocTitle();loadDefaultApprovalChain()">
                   <option value="성적서">완제품 시험 성적서</option>
                 </select>
               </div>
@@ -747,6 +747,30 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
           <div class="card-header"><i class="bi bi-database me-2"></i>BOM 제품 데이터</div>
           <div class="card-body">
             <p class="text-muted mb-3" style="font-size:12px">BOM.xlsx 파일을 업로드하면 새 문서 작성 시 제품명을 검색할 수 있습니다.</p>
+            <div class="border rounded p-2 mb-3" style="background:#f5fafa;border-color:#d0e8e8 !important;font-size:12px">
+              <div class="fw-semibold mb-1" style="color:#004d4d"><i class="bi bi-info-circle me-1"></i>업로드 형식 안내</div>
+              <ul class="mb-2 ps-3" style="line-height:1.7">
+                <li>엑셀(<code>.xlsx</code> / <code>.xls</code>) 파일, <b>첫 번째 시트</b>만 읽습니다.</li>
+                <li><b>첫 번째 행은 머리글(컬럼명)</b>이어야 합니다. (둘째 행부터 데이터)</li>
+                <li>아래 두 컬럼이 반드시 있어야 합니다 (이름이 정확히 일치해야 인식):
+                  <ul class="ps-3" style="line-height:1.7">
+                    <li>제품코드 → <code>product_code</code> 또는 <code>완제품코드</code> 또는 <code>제품코드</code></li>
+                    <li>제품명 → <code>product_name</code> 또는 <code>완제품명</code> 또는 <code>제품명</code></li>
+                  </ul>
+                </li>
+                <li>그 외 컬럼(자재명·소요량 등)이 있어도 무시되며, 같은 제품코드는 <b>중복 제거</b>되어 1건만 등록됩니다.</li>
+              </ul>
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-1" style="font-size:11px;background:#fff">
+                  <thead><tr class="table-light"><th>product_code</th><th>product_name</th></tr></thead>
+                  <tbody>
+                    <tr><td>A001</td><td>일래보 아사이베리 샴푸 500ml</td></tr>
+                    <tr><td>A002</td><td>일래보 데미지케어 트리트먼트 500ml</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <small class="text-muted">예시처럼 1행에 컬럼명, 2행부터 제품 목록을 입력하세요.</small>
+            </div>
             <div class="drop-zone" id="bomUploadZone" style="padding:20px">
               <i class="bi bi-file-earmark-spreadsheet" style="font-size:28px;color:var(--primary)"></i>
               <p class="mt-2 mb-0">BOM.xlsx 파일을 드래그하거나 클릭하세요</p>
@@ -883,6 +907,24 @@ body { font-family:"Noto Sans KR","Malgun Gothic","Segoe UI",sans-serif; backgro
             <div class="d-flex gap-2">
               <button class="btn btn-sm btn-outline-primary" onclick="addDefaultApprovalStep()"><i class="bi bi-plus-circle me-1"></i>단계 추가</button>
               <button class="btn btn-sm btn-primary" onclick="saveDefaultApprovalChain()"><i class="bi bi-check me-1"></i>기본 결재선 저장</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 문서 종류별 결재선 설정 -->
+        <div class="card mb-4">
+          <div class="card-header"><i class="bi bi-diagram-3-fill me-2"></i>문서 종류별 결재선 설정</div>
+          <div class="card-body">
+            <p class="text-muted" style="font-size:12px">문서 종류마다 결재 단계(예: 제조책임자 → 품질책임자)를 다르게 설정할 수 있습니다.<br>단계 이름만 정해두고 결재자를 비워두면, 문서 작성 시 작성자가 직접 결재자를 지정합니다. <b>종류별 결재선이 없으면 위의 기본 결재선이 적용</b>됩니다.</p>
+            <div class="mb-3" style="max-width:320px">
+              <label class="form-label" style="font-size:12px">문서 종류 선택</label>
+              <select class="form-select form-select-sm" id="catApprovalCategory" onchange="renderCategoryApprovalEditor()"></select>
+            </div>
+            <div id="catApprovalSteps" class="mb-3"></div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-primary" onclick="addCatApprovalStep()"><i class="bi bi-plus-circle me-1"></i>단계 추가</button>
+              <button class="btn btn-sm btn-primary" onclick="saveCategoryApprovalChain()"><i class="bi bi-check me-1"></i>이 종류 결재선 저장</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="resetCategoryApprovalChain()" title="이 종류 전용 결재선을 삭제하고 기본 결재선을 사용"><i class="bi bi-arrow-counterclockwise me-1"></i>기본값으로 되돌리기</button>
             </div>
           </div>
         </div>
@@ -1104,6 +1146,7 @@ let DOC_CATEGORIES = [
 let BOM_DATA = [];
 let AUTHOR_SIGN_FIRST = false;
 let DOC_TYPE_PATHS = {};
+let CATEGORY_APPROVAL_CHAINS = {}; // 문서 종류별 결재선 { '<종류코드>': [{name, approver_id, approver_name}, ...] }
 let STAMP_DISPLAY = { dept: true, name: true, position: true, date: true };
 let bomSearchTimer = null;
 
@@ -3091,9 +3134,19 @@ async function loadDefaultApprovalChain() {
   }
   try {
     const result = await api('settings_get', {});
-    if (result.success && result.settings.default_approval_chain) {
-      const chain = JSON.parse(result.settings.default_approval_chain || '[]');
-      if (chain.length > 0) {
+    if (result.success) {
+      const s = result.settings;
+      // 1) 선택된 문서 종류의 전용 결재선 우선 적용
+      const category = (document.getElementById('newDocCategory') || {}).value || '';
+      let catChains = {};
+      try { catChains = JSON.parse(s.category_approval_chains || '{}'); } catch(e) {}
+      CATEGORY_APPROVAL_CHAINS = catChains;
+      let chain = catChains[category];
+      // 2) 종류별 결재선이 없으면 기본 결재선으로 폴백
+      if (!chain || !chain.length) {
+        try { chain = JSON.parse(s.default_approval_chain || '[]'); } catch(e) { chain = []; }
+      }
+      if (chain && chain.length > 0) {
         chain.forEach(step => addApprovalStep(step.name, step.approver_id));
         return;
       }
@@ -3957,6 +4010,9 @@ async function loadSettings() {
     loadDocNumFormatUI();
     // 기본 결재선 로드
     loadDefaultApprovalStepsUI(s.default_approval_chain);
+    // 문서 종류별 결재선 로드
+    try { CATEGORY_APPROVAL_CHAINS = JSON.parse(s.category_approval_chains || '{}'); } catch(e) { CATEGORY_APPROVAL_CHAINS = {}; }
+    loadCategoryApprovalUI();
     // BOM 제품 수 표시
     loadBomProductCount();
     // Google Drive는 GAS 중계 방식 — 항상 연결됨
@@ -4004,6 +4060,96 @@ async function saveDefaultApprovalChain() {
     const result = await api('settings_update', { settings: { default_approval_chain: JSON.stringify(steps), author_sign_first: AUTHOR_SIGN_FIRST ? 'true' : 'false' } });
     hideLoading();
     if (result.success) showToast('기본 결재선이 저장되었습니다.');
+    else showToast(result.error, 'danger');
+  } catch(ex) { hideLoading(); }
+}
+
+// ── 문서 종류별 결재선 ─────────────────────────────────
+function loadCategoryApprovalUI() {
+  const sel = document.getElementById('catApprovalCategory');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = DOC_CATEGORIES.map(c =>
+    `<option value="${esc(c.value)}">${esc(c.label)}</option>`).join('');
+  if (cur) sel.value = cur;
+  renderCategoryApprovalEditor();
+}
+
+function renderCategoryApprovalEditor() {
+  const container = document.getElementById('catApprovalSteps');
+  if (!container) return;
+  container.innerHTML = '';
+  const cat = document.getElementById('catApprovalCategory').value;
+  const chain = (CATEGORY_APPROVAL_CHAINS && CATEGORY_APPROVAL_CHAINS[cat]) || [];
+  if (!chain.length) {
+    container.innerHTML = '<div class="alert alert-light border py-2 mb-2" style="font-size:12px"><i class="bi bi-info-circle me-1"></i>이 종류는 전용 결재선이 없어 <b>기본 결재선</b>이 적용됩니다. 아래에서 단계를 추가해 전용 결재선을 설정하세요.</div>';
+    return;
+  }
+  chain.forEach(step => addCatApprovalStep(step.name, step.approver_id));
+}
+
+function addCatApprovalStep(name, approverId) {
+  const container = document.getElementById('catApprovalSteps');
+  // 안내 alert가 떠 있으면 제거
+  const info = container.querySelector('.alert');
+  if (info) info.remove();
+  const stepNum = container.querySelectorAll('.cat-step-row').length + 1;
+  const div = document.createElement('div');
+  div.className = 'row g-2 align-items-end mb-2 cat-step-row';
+  div.innerHTML = `
+    <div class="col-md-3"><label class="form-label" style="font-size:12px">단계 ${stepNum}</label><input type="text" class="form-control form-control-sm cat-step-name" placeholder="예: 제조책임자" value="${esc(name || '')}"></div>
+    <div class="col-md-5"><label class="form-label" style="font-size:12px">결재자 <span class="text-muted">(선택)</span></label>
+      <select class="form-select form-select-sm cat-step-approver">
+        <option value="">작성 시 지정</option>
+        ${ALL_USERS.map(u => `<option value="${u.id}" data-name="${esc(u.name)}" ${u.id===approverId?'selected':''}>${u.name} (${u.department} ${u.position})</option>`).join('')}
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-outline-danger" onclick="this.closest('.cat-step-row').remove();renumberCatSteps()"><i class="bi bi-trash"></i></button></div>`;
+  container.appendChild(div);
+}
+
+function renumberCatSteps() {
+  document.querySelectorAll('#catApprovalSteps .cat-step-row').forEach((row, i) => {
+    row.querySelector('label').firstChild.textContent = '단계 ' + (i + 1);
+  });
+}
+
+async function saveCategoryApprovalChain() {
+  const cat = document.getElementById('catApprovalCategory').value;
+  if (!cat) { showToast('문서 종류를 선택해주세요.', 'warning'); return; }
+  const steps = [];
+  document.querySelectorAll('#catApprovalSteps .cat-step-row').forEach(row => {
+    const nameVal = row.querySelector('.cat-step-name').value.trim();
+    if (!nameVal) return; // 단계 이름 없는 행은 제외
+    const sel = row.querySelector('.cat-step-approver');
+    const opt = sel.options[sel.selectedIndex];
+    steps.push({ name: nameVal, approver_id: sel.value || '', approver_name: sel.value ? (opt.dataset.name || '') : '' });
+  });
+  if (!steps.length) {
+    // 단계가 하나도 없으면 전용 결재선 해제와 동일하게 처리
+    delete CATEGORY_APPROVAL_CHAINS[cat];
+  } else {
+    CATEGORY_APPROVAL_CHAINS[cat] = steps;
+  }
+  showLoading('저장 중...');
+  try {
+    const result = await api('settings_update', { settings: { category_approval_chains: JSON.stringify(CATEGORY_APPROVAL_CHAINS) } });
+    hideLoading();
+    if (result.success) { showToast('해당 문서 종류의 결재선이 저장되었습니다.'); renderCategoryApprovalEditor(); }
+    else showToast(result.error, 'danger');
+  } catch(ex) { hideLoading(); }
+}
+
+async function resetCategoryApprovalChain() {
+  const cat = document.getElementById('catApprovalCategory').value;
+  if (!cat) return;
+  if (!confirm('이 문서 종류의 전용 결재선을 삭제하고 기본 결재선을 사용하시겠습니까?')) return;
+  delete CATEGORY_APPROVAL_CHAINS[cat];
+  showLoading('저장 중...');
+  try {
+    const result = await api('settings_update', { settings: { category_approval_chains: JSON.stringify(CATEGORY_APPROVAL_CHAINS) } });
+    hideLoading();
+    if (result.success) { showToast('기본 결재선을 사용하도록 변경되었습니다.'); renderCategoryApprovalEditor(); }
     else showToast(result.error, 'danger');
   } catch(ex) { hideLoading(); }
 }
@@ -4251,6 +4397,7 @@ async function loadCategoriesFromServer() {
       if (s.doc_categories) { try { DOC_CATEGORIES = JSON.parse(s.doc_categories); } catch(e) {} }
       AUTHOR_SIGN_FIRST = s.author_sign_first === 'true';
       try { DOC_TYPE_PATHS = JSON.parse(s.doc_type_paths || '{}'); } catch(e) {}
+      try { CATEGORY_APPROVAL_CHAINS = JSON.parse(s.category_approval_chains || '{}'); } catch(e) {}
       if (s.stamp_display) { try { STAMP_DISPLAY = JSON.parse(s.stamp_display); } catch(e) {} }
       if (s.doc_num_format) { try { DOC_NUM_FORMAT = JSON.parse(s.doc_num_format); } catch(e) {} }
     }
