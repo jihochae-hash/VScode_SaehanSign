@@ -2183,9 +2183,8 @@ async function fb_dashboard() {
     const myDocs = docs.filter(d => d.creator_id === uid);
     // 결재 대기 문서
     const pendingDocs = docs.filter(d => myPendingDocIds.has(d.id) && d.status === 'pending');
-    // 최근 문서 (내가 관련된)
-    const myRelatedDocIds = new Set([...myDocs.map(d=>d.id), ...myApprovals.map(a=>a.doc_id)]);
-    const recentDocs = docs.filter(d => myRelatedDocIds.has(d.id))
+    // 최근 문서 (전사 — 최근 등록된 문서 전체)
+    const recentDocs = [...docs]
       .sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0)).slice(0, 10);
 
     return {
@@ -2324,13 +2323,24 @@ async function handleLogin(e) {
   return false;
 }
 
-async function checkSession() {
-  if (!SESSION_TOKEN || !API_URL) { showLogin(); return; }
-  try {
-    const result = await api('validate_session', { token: SESSION_TOKEN });
-    if (result.success) { CURRENT_USER = result.user; showApp(); }
-    else showLogin();
-  } catch(ex) { showLogin(); }
+let _sessionRestored = false;
+function checkSession() {
+  // Firebase Auth는 저장된 로그인 세션을 비동기로 복원한다.
+  // onAuthStateChanged로 복원 완료를 기다린 뒤 화면을 결정해야
+  // 새로고침해도 로그인이 유지되고, auth.currentUser가 보장되어 대시보드가 정상 로드된다.
+  auth.onAuthStateChanged(async (user) => {
+    if (_sessionRestored) return; // 최초 1회(세션 복원)만 처리 — 이후 로그인/로그아웃은 각 함수가 처리
+    _sessionRestored = true;
+    if (!user) { showLogin(); return; }
+    try {
+      const result = await fb_validateSession();
+      if (result.success) {
+        CURRENT_USER = result.user;
+        SESSION_TOKEN = user.uid;
+        showApp();
+      } else { showLogin(); }
+    } catch(ex) { showLogin(); }
+  });
 }
 
 function showLogin() {
